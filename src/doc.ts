@@ -200,7 +200,7 @@ export class Doc {
   }
 
   /** Project-level fields that are not undoable (name, view, background). */
-  setMeta(fields: Partial<Pick<Project, 'name' | 'view' | 'background'>>) {
+  setMeta(fields: Partial<Pick<Project, 'name' | 'view' | 'background' | 'tagPresets'>>) {
     Object.assign(this.p, fields);
     const viewOnly = Object.keys(fields).every((k) => k === 'view');
     this.pending.add(viewOnly ? 'view' : 'meta');

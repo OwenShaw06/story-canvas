@@ -6,6 +6,7 @@ import { blobToDataUrl, exportFilename, exportProject } from '../io';
 import { cardTitle, type Background, type BoardNode } from '../model';
 import { theme, useStore } from '../store';
 import { dockSide, type DockSide } from '../prefs';
+import { tagColor } from '../tags';
 import { useDocVersion } from './hooks';
 import {
   CardIcon,
@@ -161,11 +162,20 @@ export function SearchPanel({ board, onClose }: { board: Board; onClose: () => v
 // ---------- tags ----------
 
 export function TagPanel({ board, onClose, anchor }: { board: Board; onClose: () => void; anchor: { current: HTMLElement | null } }) {
-  useDocVersion(board.doc, ['nodes']);
+  useDocVersion(board.doc, ['nodes', 'meta']);
+  const t = useStore(theme);
   const filter = useStore(board.tagFilter);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
   const counts = new Map<string, number>();
-  for (const n of board.doc.p.nodes) if (n.kind === 'card') for (const t of n.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+  for (const n of board.doc.p.nodes) if (n.kind === 'card') for (const g of n.tags) counts.set(g, (counts.get(g) ?? 0) + 1);
   const tags = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const presets = board.doc.p.tagPresets;
+  const addPreset = () => {
+    const v = draft.trim().replace(/^#/, '').replace(/\s+/g, '-');
+    setDraft('');
+    if (v && !presets.includes(v)) board.doc.setMeta({ tagPresets: [...presets, v] });
+  };
   return (
     <Popover open onClose={onClose} class="menu tag-panel" anchor={anchor}>
       <div class="menu-title">
@@ -176,18 +186,54 @@ export function TagPanel({ board, onClose, anchor }: { board: Board; onClose: ()
           </button>
         )}
       </div>
-      {!tags.length && <p class="panel-empty">Add tags to cards (the “+ tag” field) to filter by them here.</p>}
+      {!tags.length && <p class="panel-empty">Tag cards (the “+ tag” field on a selected card) to filter by them here.</p>}
       <div class="tag-cloud">
-        {tags.map(([t, c]) => (
+        {tags.map(([g, c]) => (
           <button
-            key={t}
-            class={`chip ${filter.includes(t) ? 'is-on' : ''}`}
-            onClick={() => board.tagFilter.set(filter.includes(t) ? filter.filter((x) => x !== t) : [...filter, t])}
+            key={g}
+            class={`chip tag-chip ${filter.includes(g) ? 'is-on' : ''}`}
+            style={{ '--tag-color': tagColor(g, t) }}
+            onClick={() => board.tagFilter.set(filter.includes(g) ? filter.filter((x) => x !== g) : [...filter, g])}
           >
-            #{t} <span class="chip-count">{c}</span>
+            #{g} <span class="chip-count">{c}</span>
           </button>
         ))}
       </div>
+      <div class="menu-sep" />
+      <div class="menu-title">
+        Ready-made tags
+        <button class="link-btn" onClick={() => setEditing(!editing)}>
+          {editing ? 'Done' : 'Edit'}
+        </button>
+      </div>
+      <div class="tag-cloud">
+        {presets.map((g) => (
+          <span key={g} class="chip tag-chip is-preset" style={{ '--tag-color': tagColor(g, t) }}>
+            #{g}
+            {editing && (
+              <button class="chip-x" aria-label={`Remove ${g}`} onClick={() => board.doc.setMeta({ tagPresets: presets.filter((x) => x !== g) })}>
+                <CloseIcon size={11} />
+              </button>
+            )}
+          </span>
+        ))}
+        {editing && (
+          <input
+            class="te-chip-input"
+            placeholder="+ New tag"
+            value={draft}
+            onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addPreset();
+              }
+            }}
+            onBlur={addPreset}
+          />
+        )}
+      </div>
+      {!editing && <p class="panel-hint">Offered whenever you tag a card. Each tag keeps its own colour.</p>}
     </Popover>
   );
 }

@@ -19,7 +19,9 @@ import {
   type TextNode,
 } from '../model';
 import { accent, fill, type Theme } from '../palette';
-import { CloseIcon, CollapseIcon, ExpandIcon, ImageIcon, TemplateGlyph } from './icons';
+import { CloseIcon, CollapseIcon, DiceIcon, ExpandIcon, ImageIcon, StarIcon, TemplateGlyph } from './icons';
+import { NAMEABLE, randomName } from '../suggestions';
+import { tagColor } from '../tags';
 
 type Props = {
   node: BoardNode;
@@ -96,6 +98,7 @@ function AutoTextarea(props: {
   primary?: boolean;
   field?: string;
   onBlur?: () => void;
+  onFocus?: () => void;
   style?: Record<string, string | number>;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -122,6 +125,7 @@ function AutoTextarea(props: {
         props.onInput((e.currentTarget as HTMLTextAreaElement).value);
         fit();
       }}
+      onFocus={props.onFocus}
       onBlur={() => {
         props.board.doc.sealMerge();
         props.onBlur?.();
@@ -139,6 +143,7 @@ function TextInput(props: {
   primary?: boolean;
   field?: string;
   onBlur?: () => void;
+  onFocus?: () => void;
 }) {
   return (
     <input
@@ -153,6 +158,7 @@ function TextInput(props: {
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
       }}
+      onFocus={props.onFocus}
       onBlur={() => {
         props.board.doc.sealMerge();
         props.onBlur?.();
@@ -202,6 +208,9 @@ function CardBody(p: Props & { node: CardNode }) {
   const setField = (key: string, v: string) => board.doc.type('nodes', n.id, { fields: { ...n.fields, [key]: v } }, `${n.id}:${key}`);
   const [tagDraft, setTagDraft] = useState('');
   const [revealed, setRevealed] = useState<string | null>(null);
+  /** Which field is being edited ('#title', '#tags' or a field key), for its suggestion row. */
+  const [focused, setFocused] = useState<string | null>(null);
+  const blurred = (key: string) => setFocused((f) => (f === key ? null : f));
   // Filled fields show; empty ones collapse into "+ Field" chips while selected.
   const shown = rest.filter((f) => n.fields[f.key] || f.key === revealed);
   const empty = rest.filter((f) => !shown.includes(f));
@@ -210,8 +219,18 @@ function CardBody(p: Props & { node: CardNode }) {
     if (type === 'text' || type === 'longtext') focusNodeSoon(n.id, `[data-field="${key}"]`);
   };
   const hideIfEmpty = (key: string) => {
+    blurred(key);
     if (!n.fields[key] && revealed === key) setRevealed(null);
   };
+  const saveSuggestion = (key: string, value: string) => {
+    if (!t) return;
+    board.doc.put('templates', {
+      ...t,
+      fields: t.fields.map((f) => (f.key === key ? { ...f, suggestions: [...(f.suggestions ?? []), value] } : f)),
+    });
+    board.notify(`Saved “${value}” as a suggestion`);
+  };
+  const projectTags = [...new Set([...board.doc.p.tagPresets, ...board.doc.p.nodes.flatMap((x) => (x.kind === 'card' ? x.tags : []))])];
 
   const addTag = () => {
     const tag = tagDraft.trim().replace(/^#/, '');
@@ -235,6 +254,8 @@ function CardBody(p: Props & { node: CardNode }) {
               value={n.fields[titleField.key] ?? ''}
               placeholder={`Untitled ${t?.name.toLowerCase() ?? 'card'}`}
               onInput={(v) => setField(titleField.key, v)}
+              onFocus={() => setFocused('#title')}
+              onBlur={() => blurred('#title')}
             />
           ) : (
             <span class="card-title is-static">{t?.name}</span>
@@ -249,6 +270,18 @@ function CardBody(p: Props & { node: CardNode }) {
           {n.collapsed ? <ExpandIcon size={16} /> : <CollapseIcon size={16} />}
         </button>
       </div>
+      {focused === '#title' && titleField && t && NAMEABLE.has(t.id) && (
+        <div class="suggest-row suggest-title">
+          <button
+            data-btn
+            data-keep-focus
+            class="suggest-chip is-dice"
+            onClick={() => setField(titleField.key, randomName(t.id, n.fields.type ?? ''))}
+          >
+            <DiceIcon size={15} /> Random name
+          </button>
+        </div>
+      )}
 
       {!n.collapsed && (
         <div class="card-body">
@@ -263,6 +296,7 @@ function CardBody(p: Props & { node: CardNode }) {
                   value={n.fields[f.key] ?? ''}
                   placeholder={`Add ${f.label.toLowerCase()}…`}
                   onInput={(v) => setField(f.key, v)}
+                  onFocus={() => setFocused(f.key)}
                   onBlur={() => hideIfEmpty(f.key)}
                 />
               )}
@@ -274,7 +308,17 @@ function CardBody(p: Props & { node: CardNode }) {
                   value={n.fields[f.key] ?? ''}
                   placeholder={`Add ${f.label.toLowerCase()}…`}
                   onInput={(v) => setField(f.key, v)}
+                  onFocus={() => setFocused(f.key)}
                   onBlur={() => hideIfEmpty(f.key)}
+                />
+              )}
+              {focused === f.key && (f.type === 'text' || f.type === 'longtext') && (
+                <SuggestRow
+                  items={f.suggestions ?? []}
+                  value={n.fields[f.key] ?? ''}
+                  multi={!!f.multi}
+                  onChange={(v) => setField(f.key, v)}
+                  onSave={(v) => saveSuggestion(f.key, v)}
                 />
               )}
               {f.type === 'select' && (
@@ -306,7 +350,7 @@ function CardBody(p: Props & { node: CardNode }) {
 
           <div class="card-tags">
             {n.tags.map((tag) => (
-              <span class="tag" key={tag}>
+              <span class="tag" key={tag} style={{ '--tag-color': tagColor(tag, theme) }}>
                 #{tag}
                 {p.selected && (
                   <button
@@ -333,13 +377,79 @@ function CardBody(p: Props & { node: CardNode }) {
                     addTag();
                   }
                 }}
-                onBlur={addTag}
+                onFocus={() => setFocused('#tags')}
+                onBlur={() => {
+                  addTag();
+                  blurred('#tags');
+                }}
               />
             )}
           </div>
+          {focused === '#tags' && (
+            <div class="suggest-row">
+              {projectTags
+                .filter((g) => !n.tags.includes(g) && g.toLowerCase().includes(tagDraft.trim().replace(/^#/, '').toLowerCase()))
+                .slice(0, 16)
+                .map((g) => (
+                  <button
+                    key={g}
+                    data-btn
+                    data-keep-focus
+                    class="suggest-chip is-tag"
+                    style={{ '--tag-color': tagColor(g, theme) }}
+                    onClick={() => {
+                      setTagDraft('');
+                      board.doc.patch('nodes', n.id, { tags: [...n.tags, g] });
+                    }}
+                  >
+                    #{g}
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
       )}
       {!n.collapsed && <NodeInk ink={n.ink} theme={theme} />}
+    </div>
+  );
+}
+
+/** Quick picks under the field being edited. Tap to fill; list fields collect several. */
+function SuggestRow(props: { items: string[]; value: string; multi: boolean; onChange: (v: string) => void; onSave: (v: string) => void }) {
+  const [more, setMore] = useState(false);
+  const parts = props.value
+    .split(/\s*,\s*/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const has = (item: string) => (props.multi ? parts.some((x) => x.toLowerCase() === item.toLowerCase()) : props.value.trim() === item);
+  const toggle = (item: string) => {
+    if (!props.multi) return props.onChange(has(item) ? '' : item);
+    const next = has(item) ? parts.filter((x) => x.toLowerCase() !== item.toLowerCase()) : [...parts, item];
+    props.onChange(next.join(', '));
+  };
+  // Offer to save what you typed (the last item, for list fields) as a new suggestion.
+  const candidate = (props.multi ? parts[parts.length - 1] : props.value.trim()) ?? '';
+  const canSave = !!candidate && candidate.length <= 40 && !props.items.some((x) => x.toLowerCase() === candidate.toLowerCase());
+  const LIMIT = 12;
+  const shown = more ? props.items : props.items.slice(0, LIMIT);
+  if (!props.items.length && !canSave) return null;
+  return (
+    <div class="suggest-row">
+      {shown.map((item) => (
+        <button key={item} data-btn data-keep-focus class={`suggest-chip ${has(item) ? 'is-on' : ''}`} onClick={() => toggle(item)}>
+          {item}
+        </button>
+      ))}
+      {!more && props.items.length > LIMIT && (
+        <button data-btn data-keep-focus class="suggest-chip is-more" onClick={() => setMore(true)}>
+          +{props.items.length - LIMIT} more
+        </button>
+      )}
+      {canSave && (
+        <button data-btn data-keep-focus class="suggest-chip is-save" onClick={() => props.onSave(candidate)} title="Save as a suggestion for this field">
+          <StarIcon size={13} /> Save “{candidate}”
+        </button>
+      )}
     </div>
   );
 }

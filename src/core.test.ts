@@ -6,6 +6,8 @@ import { normalizeProject } from './migrate';
 import { Autosaver, newProject, SAVE_DELAY } from './db';
 import { projectToMarkdown, zip } from './export';
 import type { CardNode, StickyNode, Stroke } from './model';
+import { randomName, DEFAULT_TAGS } from './suggestions';
+import { defaultTemplates } from './templates';
 
 const s = (id: string, pts: [number, number][] = [[0, 0], [10, 0]]): Stroke => ({
   id,
@@ -194,6 +196,38 @@ describe('migration', () => {
     expect(p.links[0]).toMatchObject({ fromId: 'c1', toId: 'c1' });
     expect(p.templates[0].icon).toBe('person');
     expect(p.background).toBe('dots');
+  });
+});
+
+describe('suggestions and names', () => {
+  it('seeds field suggestions into default templates', () => {
+    const role = defaultTemplates().find((t) => t.id === 'character')!.fields.find((f) => f.key === 'role')!;
+    expect(role.suggestions).toContain('Mentor');
+    const personality = defaultTemplates().find((t) => t.id === 'character')!.fields.find((f) => f.key === 'personality')!;
+    expect(personality.multi).toBe(true);
+  });
+
+  it('adds suggestions and tag presets to older projects, but keeps edits', () => {
+    const p = newProject();
+    const old: any = structuredClone(p);
+    delete old.tagPresets;
+    for (const t of old.templates) for (const f of t.fields) delete f.suggestions;
+    old.templates[0].fields[1].suggestions = ['Only this'];
+    const up = normalizeProject(old);
+    expect(up.tagPresets).toEqual(DEFAULT_TAGS);
+    expect(up.templates[0].fields[1].suggestions).toEqual(['Only this']);
+    expect(up.templates[0].fields.find((f) => f.key === 'personality')!.suggestions!.length).toBeGreaterThan(5);
+  });
+
+  it('generates names for each card type', () => {
+    for (const id of ['character', 'location', 'faction', 'item', 'system']) {
+      for (let i = 0; i < 20; i++) {
+        const n = randomName(id);
+        expect(n.length).toBeGreaterThan(2);
+        expect(n[0]).toBe(n[0].toUpperCase());
+      }
+    }
+    expect(randomName('location', 'Tavern')).toMatch(/^The /);
   });
 });
 

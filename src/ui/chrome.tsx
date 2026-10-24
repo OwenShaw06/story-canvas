@@ -5,6 +5,7 @@ import type { ShapeKind } from '../model';
 import { accent, HIGHLIGHTER_COLORS, PALETTE, PEN_COLORS, STICKY_COLORS, type ColorName } from '../palette';
 import { theme, useStore, type Store } from '../store';
 import { dockSide, type DockSide } from '../prefs';
+import { fullscreenSupported, isFullscreen, toggleFullscreen } from '../fullscreen';
 import { focusNodeSoon, useDocVersion } from './hooks';
 import {
   ChevronDownIcon,
@@ -27,6 +28,8 @@ import {
   TemplateGlyph,
   TextIcon,
   UndoIcon,
+  ExpandScreenIcon,
+  ShrinkIcon,
 } from './icons';
 import { IconButton, Popover } from './Popover';
 import { shapePath } from './nodes';
@@ -44,6 +47,7 @@ export function TopBar(props: {
   const { board } = props;
   useDocVersion(board.doc, ['meta']);
   const filter = useStore(board.tagFilter);
+  const fs = useStore(isFullscreen);
   const toggle = (p: string) => props.setPanel(props.panel === p ? null : p);
   return (
     <>
@@ -72,6 +76,11 @@ export function TopBar(props: {
           <RedoIcon />
         </IconButton>
         <span class="bar-sep" />
+        {fullscreenSupported() && (
+          <IconButton label={fs ? 'Exit full screen' : 'Full screen (hides the Safari bar)'} active={fs} onClick={() => void toggleFullscreen()}>
+            {fs ? <ShrinkIcon /> : <ExpandScreenIcon />}
+          </IconButton>
+        )}
         <IconButton label="Search" active={props.panel === 'search'} onClick={() => toggle('search')}>
           <SearchIcon />
         </IconButton>

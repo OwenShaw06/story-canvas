@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { defaultTemplates } from './templates';
+import { DEFAULT_TAGS } from './suggestions';
 import { normalizeProject } from './migrate';
 import { uid, type Project, type ProjectMeta } from './model';
 
@@ -62,6 +63,7 @@ export function newProject(name = 'Untitled world'): Project {
     strokes: [],
     templates: defaultTemplates(),
     background: 'dots',
+    tagPresets: [...DEFAULT_TAGS],
   };
 }
 

@@ -1,5 +1,6 @@
 import { defaultTemplates } from './templates';
 import { uid, type BoardNode, type Project } from './model';
+import { DEFAULT_TAGS } from './suggestions';
 
 // Brings any stored or imported project up to the current shape. Safe to run
 // on an already-current project.
@@ -32,6 +33,14 @@ export function normalizeProject(raw: any, opts: { newId?: boolean } = {}): Proj
     if (d) {
       t.icon ??= d.icon;
       t.color ??= d.color;
+      // Older projects predate field suggestions: add the defaults once.
+      for (const f of t.fields ?? []) {
+        const df = d.fields.find((x) => x.key === f.key);
+        if (df?.suggestions && f.suggestions === undefined) {
+          f.suggestions = [...df.suggestions];
+          if (df.multi) f.multi = true;
+        }
+      }
     }
   }
 
@@ -49,5 +58,6 @@ export function normalizeProject(raw: any, opts: { newId?: boolean } = {}): Proj
     strokes: arr(raw.strokes).filter((s: any) => s && typeof s.id === 'string' && Array.isArray(s.points)),
     templates,
     background: ['dots', 'grid', 'lines', 'plain'].includes(raw.background) ? raw.background : 'dots',
+    tagPresets: Array.isArray(raw.tagPresets) ? raw.tagPresets.filter((t: unknown) => typeof t === 'string') : [...DEFAULT_TAGS],
   };
 }

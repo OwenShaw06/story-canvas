@@ -1,4 +1,5 @@
 import type { FieldType, Template } from './model';
+import { FIELD_SUGGESTIONS } from './suggestions';
 
 // Default templates from the requirements doc. Templates are data: each new
 // project gets its own copy, so editing them later never touches code.
@@ -20,12 +21,17 @@ function make(id: string, name: string, icon: string, color: string, specs: Spec
     name,
     icon,
     color,
-    fields: specs.map(([label, type = 'text', options]) => ({
-      key: fieldKey(label),
-      label,
-      type,
-      ...(options ? { options } : {}),
-    })),
+    fields: specs.map(([label, type = 'text', options]) => {
+      const key = fieldKey(label);
+      const sug = FIELD_SUGGESTIONS[id]?.[key];
+      return {
+        key,
+        label,
+        type,
+        ...(options ? { options } : {}),
+        ...(sug ? { suggestions: [...sug.items], ...(sug.multi ? { multi: true } : {}) } : {}),
+      };
+    }),
   };
 }
 

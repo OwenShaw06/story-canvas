@@ -27,12 +27,22 @@ ink, whiteboard objects, and structured story cards. Fully local and offline.
 - Tags, tag filter (dims everything else), colours, collapse to a header
 - Template editor: rename, recolour, re-icon, add/reorder/remove fields, duplicate templates
 
+**Writing helpers**
+- Suggestions under the field you're editing: tap to fill (Role: Mentor, Rival…), or pick
+  several for list fields (Personality: Brave, Witty…); tap again to remove
+- Save anything you type as a new suggestion (★ Save); edit suggestions per field in the
+  template editor, with a “Pick several” switch
+- 🎲 Random name on character, location, faction, item and magic-system cards
+- Ready-made tags (protagonist, act-1, secret…) offered while tagging, each with its own
+  colour; edit the list in the tag panel
+
 **Organise & export**
 - World list with thumbnails; rename, duplicate, delete
 - Search across every card field, note and frame; tap a result to fly to it
 - Export: PNG, PDF, Markdown for Obsidian (one note per card, connections as [[wiki links]]),
   and a complete JSON backup (images included) that can be re-opened as a new world
 - Undo/redo for everything (200 steps); two-finger tap = undo, three-finger tap = redo
+- Toolbar on the left, right or bottom (drag its grip); full-screen button hides Safari's bar
 - Autosave within 0.4 s of any edit; follows system light/dark mode
 
 **Keyboard (Magic Keyboard / desktop)**: V select · P pen · H highlighter · E eraser ·

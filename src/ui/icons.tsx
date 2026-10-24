@@ -202,6 +202,27 @@ export const EditIcon = make(<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" />);
 export const ArrowUpIcon = make(<path d="M12 19V5M6 11l6-6 6 6" />);
 export const ArrowDownIcon = make(<path d="M12 5v14M6 13l6 6 6-6" />);
 
+export const ExpandScreenIcon = make(
+  <>
+    <path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" />
+  </>,
+);
+export const ShrinkIcon = make(
+  <>
+    <path d="M9 4v4a1 1 0 0 1-1 1H4M20 9h-4a1 1 0 0 1-1-1V4M15 20v-4a1 1 0 0 1 1-1h4M4 15h4a1 1 0 0 1 1 1v4" />
+  </>,
+);
+export const DiceIcon = make(
+  <>
+    <rect x="4" y="4" width="16" height="16" rx="3.5" />
+    <circle cx="9" cy="9" r="1.2" fill="currentColor" />
+    <circle cx="15" cy="15" r="1.2" fill="currentColor" />
+    <circle cx="15" cy="9" r="1.2" fill="currentColor" />
+    <circle cx="9" cy="15" r="1.2" fill="currentColor" />
+  </>,
+);
+export const StarIcon = make(<path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z" />);
+
 // Template icons
 export const PersonIcon = make(
   <>

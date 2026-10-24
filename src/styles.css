@@ -458,8 +458,8 @@ mark {
   border-radius: 999px;
   font-size: 12.5px;
   font-weight: 550;
-  color: var(--card-accent);
-  background: color-mix(in srgb, var(--card-accent) 11%, transparent);
+  color: var(--tag-color, var(--card-accent));
+  background: color-mix(in srgb, var(--tag-color, var(--card-accent)) 12%, transparent);
 }
 
 .tag-remove {
@@ -521,6 +521,81 @@ mark {
   color: var(--muted);
   font-size: 13.5px;
   font-weight: 500;
+}
+
+/* Suggestions under the field being edited. */
+.suggest-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 6px 0 2px;
+  animation: suggest-in 0.22s var(--ease-out) both;
+}
+
+.suggest-title {
+  padding: 0 16px 10px 62px;
+  margin-top: -4px;
+}
+
+@keyframes suggest-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.suggest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: var(--hover);
+  transition:
+    background 0.15s,
+    color 0.15s,
+    transform 0.15s var(--ease-spring);
+}
+
+.suggest-chip:active {
+  transform: scale(0.94);
+}
+
+.suggest-chip:hover {
+  background: var(--active);
+  color: var(--ink);
+}
+
+.suggest-chip.is-on {
+  color: #fff;
+  background: var(--card-accent, var(--accent));
+}
+
+.suggest-chip.is-more {
+  color: var(--muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.suggest-chip.is-save {
+  color: var(--card-accent, var(--accent));
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--card-accent, var(--accent)) 50%, transparent);
+}
+
+.suggest-chip.is-dice {
+  color: var(--card-accent, var(--accent));
+  background: color-mix(in srgb, var(--card-accent, var(--accent)) 12%, transparent);
+  font-weight: 600;
+}
+
+.suggest-chip.is-tag {
+  color: var(--tag-color);
+  background: color-mix(in srgb, var(--tag-color) 12%, transparent);
 }
 
 .field-adds {
@@ -1579,9 +1654,113 @@ mark {
   padding: 4px 8px 10px;
 }
 
-.tag-cloud .chip.is-on {
-  background: var(--accent);
-  color: var(--accent-ink);
+.tag-chip {
+  color: var(--tag-color);
+  background: color-mix(in srgb, var(--tag-color) 12%, transparent);
+}
+
+.tag-cloud .tag-chip.is-on {
+  background: var(--tag-color);
+  color: #fff;
+}
+
+.tag-chip.is-preset {
+  cursor: default;
+}
+
+.chip-x {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: -6px;
+  border-radius: 50%;
+}
+
+.panel-hint {
+  margin: 0;
+  padding: 0 14px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.tag-panel {
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+}
+
+/* Template editor: suggestions */
+.te-suggest {
+  flex-basis: 100%;
+  padding: 4px 0 2px;
+}
+
+.te-suggest-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.te-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-2);
+}
+
+.te-suggest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.te-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  background: var(--hover);
+}
+
+.te-chip button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--muted);
+}
+
+.te-chip button:hover {
+  background: var(--active);
+  color: var(--ink);
+}
+
+.te-chip-input {
+  height: 26px;
+  width: 140px;
+  padding: 0 10px;
+  border: 0;
+  outline: none;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  font-size: 12.5px;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .panel-empty {

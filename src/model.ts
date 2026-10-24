@@ -18,7 +18,16 @@ export type Stroke = {
 
 export type FieldType = 'text' | 'longtext' | 'select' | 'image';
 
-export type TemplateField = { key: string; label: string; type: FieldType; options?: string[] };
+export type TemplateField = {
+  key: string;
+  label: string;
+  type: FieldType;
+  options?: string[];
+  /** Quick picks shown while editing the field. */
+  suggestions?: string[];
+  /** Picks add to a list (comma separated) instead of replacing the value. */
+  multi?: boolean;
+};
 
 export type Template = {
   id: string;
@@ -87,6 +96,8 @@ export type Project = {
   strokes: Stroke[];
   templates: Template[];
   background: Background;
+  /** Tags offered when tagging a card (editable). */
+  tagPresets: string[];
 };
 
 /** Lightweight listing entry for the project screen. */

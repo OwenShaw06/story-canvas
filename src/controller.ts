@@ -194,7 +194,8 @@ export class Controller {
     if (inField && kind !== 'touch') return;
     this.recoverStale(e);
     // Pressing anywhere that isn't a field finishes the edit.
-    if (!inField && !(e.target as Element).closest('[data-edit]')) blurField();
+    // (Suggestion chips keep the field focused so you can pick several.)
+    if (!inField && !(e.target as Element).closest('[data-edit], [data-keep-focus]')) blurField();
     if (kind === 'touch') return this.touchDown(e);
     if (kind === 'mouse' && (e.button === 1 || (e.button === 0 && this.spaceDown))) {
       e.preventDefault();

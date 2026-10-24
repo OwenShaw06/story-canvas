@@ -142,6 +142,14 @@ export function TemplateEditor({ board, onClose }: { board: Board; onClose: () =
                         }
                       />
                     )}
+                    {(f.type === 'text' || f.type === 'longtext') && (
+                      <SuggestionEditor
+                        items={f.suggestions ?? []}
+                        multi={!!f.multi}
+                        onChange={(suggestions) => updateField(i, { suggestions })}
+                        onMulti={(multi) => updateField(i, { multi })}
+                      />
+                    )}
                     <div class="te-field-actions">
                       <button class="icon-btn" aria-label="Move up" disabled={i === 0} onClick={() => moveField(i, -1)}>
                         <ArrowUpIcon size={16} />
@@ -167,3 +175,47 @@ export function TemplateEditor({ board, onClose }: { board: Board; onClose: () =
   );
 }
 
+
+/** Edit a field's quick picks: remove with ×, add by typing and pressing Return. */
+function SuggestionEditor(props: { items: string[]; multi: boolean; onChange: (v: string[]) => void; onMulti: (v: boolean) => void }) {
+  const [draft, setDraft] = useState('');
+  const add = () => {
+    const v = draft.trim();
+    setDraft('');
+    if (v && !props.items.includes(v)) props.onChange([...props.items, v]);
+  };
+  return (
+    <div class="te-suggest">
+      <div class="te-suggest-head">
+        <span>Suggestions</span>
+        <label class="te-toggle">
+          <input type="checkbox" checked={props.multi} onChange={(e) => props.onMulti((e.currentTarget as HTMLInputElement).checked)} />
+          Pick several
+        </label>
+      </div>
+      <div class="te-suggest-chips">
+        {props.items.map((it) => (
+          <span key={it} class="te-chip">
+            {it}
+            <button aria-label={`Remove ${it}`} onClick={() => props.onChange(props.items.filter((x) => x !== it))}>
+              <CloseIcon size={11} />
+            </button>
+          </span>
+        ))}
+        <input
+          class="te-chip-input"
+          placeholder="+ Add suggestion"
+          value={draft}
+          onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault();
+              add();
+            }
+          }}
+          onBlur={add}
+        />
+      </div>
+    </div>
+  );
+}
