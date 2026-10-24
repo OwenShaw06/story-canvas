@@ -8,7 +8,7 @@ import { renderBoard } from '../export';
 import { dataUrlToBlob, importProject } from '../io';
 import type { Project } from '../model';
 import { store, theme, useStore } from '../store';
-import { dockSide } from '../prefs';
+import { dockSide, snapToGrid } from '../prefs';
 import { ContextBar } from './ContextBar';
 import { Dock, TopBar, ZoomControl } from './chrome';
 import { useDocVersion } from './hooks';
@@ -42,6 +42,11 @@ export function BoardScreen({ project, onExit, onOpen }: { project: Project; onE
     if (import.meta.env.DEV) (window as unknown as { __board: Board }).__board = board;
     engine.onViewChange = () => viewTick.set((v) => v + 1);
     const ctrl = new Controller(board, containerRef.current!);
+    engine.emphasizeGrid = snapToGrid.get();
+    const unsubGrid = snapToGrid.subscribe((on) => {
+      engine.emphasizeGrid = on;
+      engine.requestBase();
+    });
     setController(ctrl);
     saver.onError = () => board.notify('Could not save. Export a backup from the menu.');
     const unsub = board.doc.subscribe((changed) => {
@@ -63,6 +68,7 @@ export function BoardScreen({ project, onExit, onOpen }: { project: Project; onE
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('pagehide', flush);
       unsub();
+      unsubGrid();
       ctrl.destroy();
       engine.destroy();
       void saver.flush().then(() => saveThumbnail(board.doc.p));

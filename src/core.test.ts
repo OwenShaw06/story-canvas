@@ -8,6 +8,7 @@ import { projectToMarkdown, zip } from './export';
 import type { CardNode, StickyNode, Stroke } from './model';
 import { randomName, DEFAULT_TAGS } from './suggestions';
 import { defaultTemplates } from './templates';
+import { align, distribute, tidy } from './arrange';
 
 const s = (id: string, pts: [number, number][] = [[0, 0], [10, 0]]): Stroke => ({
   id,
@@ -228,6 +229,48 @@ describe('suggestions and names', () => {
       }
     }
     expect(randomName('location', 'Tavern')).toMatch(/^The /);
+  });
+});
+
+describe('arrange', () => {
+  const rs = [
+    { id: 'a', x: 10, y: 0, w: 100, h: 50 },
+    { id: 'b', x: 200, y: 80, w: 60, h: 40 },
+    { id: 'c', x: 90, y: 300, w: 120, h: 70 },
+  ];
+  const by = (ps: { id: string; x: number; y: number }[]) => Object.fromEntries(ps.map((p) => [p.id, [p.x, p.y]]));
+
+  it('aligns edges and centres', () => {
+    expect(by(align(rs, 'left'))).toEqual({ a: [10, 0], b: [10, 80], c: [10, 300] });
+    expect(by(align(rs, 'right'))).toEqual({ a: [160, 0], b: [200, 80], c: [140, 300] });
+    expect(by(align(rs, 'top'))).toEqual({ a: [10, 0], b: [200, 0], c: [90, 0] });
+    expect(align(rs, 'hcenter').map((p) => p.x + rs.find((r) => r.id === p.id)!.w / 2)).toEqual([135, 135, 135]);
+  });
+
+  it('spaces objects evenly, keeping the ends in place', () => {
+    const d = by(distribute(rs, 'y'));
+    // span 0..370, heights 160 → gap 105
+    expect(d).toEqual({ a: [10, 0], b: [200, 155], c: [90, 300] });
+  });
+
+  it('tidies into a grid without overlaps', () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({ id: String(i), x: (i * 137) % 400, y: (i * 251) % 300, w: 100 + (i % 3) * 20, h: 60 + (i % 2) * 30 }));
+    const out = tidy(many, 32);
+    const rects = out.map((p) => ({ ...p, w: many.find((m) => m.id === p.id)!.w, h: many.find((m) => m.id === p.id)!.h }));
+    for (const a of rects)
+      for (const b of rects) {
+        if (a === b) continue;
+        const overlap = a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+        expect(overlap).toBe(false);
+      }
+  });
+
+  it('tidy can land on the grid', () => {
+    const out = tidy(rs, 32, (v) => Math.round(v / 32) * 32);
+    for (const p of out) {
+      expect(p.x % 32).toBe(0);
+      expect(p.y % 32).toBe(0);
+    }
   });
 });
 

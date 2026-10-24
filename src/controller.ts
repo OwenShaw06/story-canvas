@@ -3,6 +3,7 @@ import { pinchView, pointInPolygon, round, sampleSegment, strokeBox, strokeHit, 
 import type { Guide } from './engine/engine';
 import { nodeRect } from './layout';
 import { hasInk, INK_AUTO, uid, type BoardNode, type Point, type Stroke } from './model';
+import { snapToGrid, toGrid } from './prefs';
 
 /** Touches that start this soon after the pen lifts are treated as a palm. */
 const PALM_GRACE_MS = 500;
@@ -662,11 +663,19 @@ export class Controller {
     const [wx, wy] = this.engine.clientToWorld(e.clientX, e.clientY);
     let dx = wx - g.startWorld[0];
     let dy = wy - g.startWorld[1];
-    if (!e.altKey && g.movers.length) [dx, dy] = this.snap(g, dx, dy);
+    if (!e.altKey && g.movers.length) [dx, dy] = snapToGrid.get() ? this.snapGrid(g, dx, dy) : this.snap(g, dx, dy);
     else this.engine.guides = [];
     for (const m of g.movers) this.doc.patch('nodes', m.id, { x: Math.round(m.x + dx), y: Math.round(m.y + dy) });
     if (this.engine.strokeDrag) this.engine.strokeDrag = { dx, dy };
     this.engine.requestLive();
+  }
+
+  /** With snap to grid on, the group's top-left corner lands on the grid. */
+  private snapGrid(g: Extract<Gesture, { type: 'press' }>, dx: number, dy: number): [number, number] {
+    this.engine.guides = [];
+    const minX = Math.min(...g.movers.map((m) => m.x));
+    const minY = Math.min(...g.movers.map((m) => m.y));
+    return [toGrid(minX + dx) - minX, toGrid(minY + dy) - minY];
   }
 
   /** Snaps the moving group's edges and centres to other nodes, showing guides. */
@@ -825,8 +834,12 @@ export class Controller {
     const ax = left ? s.x + s.w : s.x; // fixed corner
     const ay = top ? s.y + s.h : s.y;
     const min = n.kind === 'text' ? { w: 60, h: 24 } : n.kind === 'card' ? { w: 220, h: 60 } : { w: 48, h: 40 };
-    let w = Math.max(min.w, left ? ax - wx : wx - ax);
-    let h = Math.max(min.h, top ? ay - wy : wy - ay);
+    // With snap to grid, the dragged corner lands on the grid.
+    const grid = snapToGrid.get() && !e.altKey;
+    const cx = grid ? toGrid(wx) : wx;
+    const cy = grid ? toGrid(wy) : wy;
+    let w = Math.max(min.w, left ? ax - cx : cx - ax);
+    let h = Math.max(min.h, top ? ay - cy : cy - ay);
     const keepAspect = (n.kind === 'image') !== e.shiftKey;
     if (keepAspect) {
       if (w / h > g.aspect) h = w / g.aspect;
@@ -1063,6 +1076,10 @@ export class Controller {
     }
     const tools: Record<string, Parameters<typeof b.tool.set>[0]> = { v: 'select', p: 'pen', h: 'highlighter', e: 'eraser', l: 'lasso' };
     if (tools[k]) return b.tool.set(tools[k]);
+    if (k === 'g') {
+      snapToGrid.set(!snapToGrid.get());
+      return b.notify(snapToGrid.get() ? 'Snap to grid on' : 'Snap to grid off');
+    }
     if (k === 'n') return b.addSticky();
     if (k === 't') return b.addText();
   }

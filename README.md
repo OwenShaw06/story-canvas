@@ -12,6 +12,8 @@ ink, whiteboard objects, and structured story cards. Fully local and offline.
 - Connectors between any two objects: drag a blue handle onto another object, or onto empty
   canvas to create a linked copy; solid / dashed / arrow, optional label ("sister of")
 - Alignment guides while dragging; resize from any corner (photos keep their shape)
+- Snap to grid (G, or the grid button by the zoom): moves, resizes and new items land on the dots
+- Arrange several items: align edges or centres, space evenly, or Tidy up into a neat grid
 - Floating context bar: colour, shape, text size, collapse, duplicate, front/back, delete
 - Backgrounds: dots, grid, lines, plain
 
@@ -46,7 +48,7 @@ ink, whiteboard objects, and structured story cards. Fully local and offline.
 - Autosave within 0.4 s of any edit; follows system light/dark mode
 
 **Keyboard (Magic Keyboard / desktop)**: V select · P pen · H highlighter · E eraser ·
-L lasso · N sticky · T text · ⌘Z / ⇧⌘Z · ⌘D duplicate · ⌘C/X/V · ⌘A · Delete ·
+L lasso · N sticky · T text · G snap to grid · ⌘Z / ⇧⌘Z · ⌘D duplicate · ⌘C/X/V · ⌘A · Delete ·
 arrows nudge · ⌘0 actual size · ⌘1 fit · space-drag pans · scroll pans · ⌘/pinch zooms
 
 ## Develop

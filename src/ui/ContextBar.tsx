@@ -17,6 +17,16 @@ import {
   LineDashedIcon,
   LineSolidIcon,
   TrashIcon,
+  AlignBottomIcon,
+  AlignCenterHIcon,
+  AlignLeftIcon,
+  AlignMiddleVIcon,
+  AlignRightIcon,
+  AlignTopIcon,
+  ArrangeIcon,
+  DistributeHIcon,
+  DistributeVIcon,
+  TidyIcon,
 } from './icons';
 import { IconButton, Popover } from './Popover';
 import { shapePath } from './nodes';
@@ -36,6 +46,7 @@ export function ContextBar({ board, viewTick }: { board: Board; viewTick: Store<
   const [pop, setPop] = useState<string | null>(null);
   const colorRef = useRef<HTMLButtonElement>(null);
   const shapeRef = useRef<HTMLButtonElement>(null);
+  const arrangeRef = useRef<HTMLButtonElement>(null);
 
   if (!board.engine || board.linkDraft.get()) return null;
   const nodes = board.selectedNodes();
@@ -176,8 +187,56 @@ export function ContextBar({ board, viewTick }: { board: Board; viewTick: Store<
         </IconButton>
       )}
 
-      {(colorable || strokeOnly || only === 'text' || only === 'card' || only === 'shape') && <span class="bar-sep" />}
+      {nodes.length >= 2 && (
+        <button
+          ref={arrangeRef}
+          class={`icon-btn ${pop === 'arrange' ? 'is-active' : ''}`}
+          aria-label="Arrange"
+          title="Align, distribute, tidy up"
+          onClick={() => setPop(pop === 'arrange' ? null : 'arrange')}
+        >
+          <ArrangeIcon size={20} />
+        </button>
+      )}
+      {(colorable || strokeOnly || only === 'text' || only === 'card' || only === 'shape' || nodes.length >= 2) && <span class="bar-sep" />}
       {common}
+
+      <Popover open={pop === 'arrange'} onClose={() => setPop(null)} class="sub-pop arrange-pop" anchor={arrangeRef}>
+        <div class="arrange-title">Align</div>
+        <div class="arrange-row">
+          <IconButton label="Align left" onClick={() => board.alignSelection('left')}>
+            <AlignLeftIcon size={20} />
+          </IconButton>
+          <IconButton label="Align centres" onClick={() => board.alignSelection('hcenter')}>
+            <AlignCenterHIcon size={20} />
+          </IconButton>
+          <IconButton label="Align right" onClick={() => board.alignSelection('right')}>
+            <AlignRightIcon size={20} />
+          </IconButton>
+          <span class="bar-sep" />
+          <IconButton label="Align top" onClick={() => board.alignSelection('top')}>
+            <AlignTopIcon size={20} />
+          </IconButton>
+          <IconButton label="Align middles" onClick={() => board.alignSelection('vmiddle')}>
+            <AlignMiddleVIcon size={20} />
+          </IconButton>
+          <IconButton label="Align bottom" onClick={() => board.alignSelection('bottom')}>
+            <AlignBottomIcon size={20} />
+          </IconButton>
+        </div>
+        <div class="arrange-title">Space &amp; tidy</div>
+        <div class="arrange-row">
+          <IconButton label="Space evenly across" disabled={nodes.length < 3} onClick={() => board.distributeSelection('x')}>
+            <DistributeHIcon size={20} />
+          </IconButton>
+          <IconButton label="Space evenly down" disabled={nodes.length < 3} onClick={() => board.distributeSelection('y')}>
+            <DistributeVIcon size={20} />
+          </IconButton>
+          <button class="tidy-btn" onClick={() => board.tidySelection()}>
+            <TidyIcon size={18} /> Tidy up
+          </button>
+        </div>
+      </Popover>
 
       <Popover open={pop === 'color'} onClose={() => setPop(null)} class="sub-pop" anchor={colorRef}>
         <ColorDots

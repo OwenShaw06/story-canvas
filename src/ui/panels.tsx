@@ -5,7 +5,7 @@ import { canvasToBlob, canvasToPdf, markdownZip, renderBoard, shareOrDownload } 
 import { blobToDataUrl, exportFilename, exportProject } from '../io';
 import { cardTitle, type Background, type BoardNode } from '../model';
 import { theme, useStore } from '../store';
-import { dockSide, type DockSide } from '../prefs';
+import { dockSide, snapToGrid, type DockSide } from '../prefs';
 import { tagColor } from '../tags';
 import { useDocVersion } from './hooks';
 import {
@@ -286,6 +286,7 @@ export function BoardMenu(props: {
           </button>
         ))}
       </div>
+      <SnapSwitch />
       <div class="menu-title">Toolbar</div>
       <ToolbarSide />
       <div class="menu-sep" />
@@ -377,5 +378,18 @@ function ToolbarSide() {
         </button>
       ))}
     </div>
+  );
+}
+
+function SnapSwitch() {
+  const on = useStore(snapToGrid);
+  return (
+    <button class="menu-item menu-switch" role="switch" aria-checked={on} onClick={() => snapToGrid.set(!on)}>
+      <span>Snap to grid</span>
+      <kbd>G</kbd>
+      <span class={`switch ${on ? 'is-on' : ''}`} aria-hidden="true">
+        <span />
+      </span>
+    </button>
   );
 }

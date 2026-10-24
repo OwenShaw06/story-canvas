@@ -14,6 +14,8 @@ import {
 } from './model';
 import { store, type Store } from './store';
 import { storeImageFile } from './db';
+import { snapToGrid, toGrid } from './prefs';
+import { align, distribute, tidy, type Alignment, type Pos, type Rect } from './arrange';
 
 export type ToolName = 'select' | 'pen' | 'highlighter' | 'eraser' | 'lasso';
 
@@ -142,13 +144,15 @@ export class Board {
     const vp = this.engine.worldViewport();
     let x = (vp.minX + vp.maxX) / 2 - w / 2;
     let y = (vp.minY + vp.maxY) / 2 - h / 2;
+    const snap = (v: number) => (snapToGrid.get() ? toGrid(v) : Math.round(v));
     const li = this.lastInsert;
     if (li && Math.abs(li.x - x) < 4 && Math.abs(li.y - y) < 4) {
       li.n++;
-      return { x: Math.round(x + li.n * 28), y: Math.round(y + li.n * 28) };
+      const step = snapToGrid.get() ? 32 : 28;
+      return { x: snap(x + li.n * step), y: snap(y + li.n * step) };
     }
     this.lastInsert = { x, y, n: 0 };
-    return { x: Math.round(x), y: Math.round(y) };
+    return { x: snap(x), y: snap(y) };
   }
 
   private addNode(n: BoardNode, select = true): BoardNode {
@@ -354,6 +358,40 @@ export class Board {
       this.doc.reorder('nodes', second, 'back');
       if (s.strokes.length) this.doc.reorder('strokes', s.strokes, where);
     }, 'Arrange');
+  }
+
+  // ---------- arrange ----------
+
+  private selectedRects(): Rect[] {
+    return this.selectedNodes().map((n) => {
+      const r = nodeRect(n);
+      return { id: n.id, x: n.x, y: n.y, w: r.maxX - r.minX, h: r.maxY - r.minY };
+    });
+  }
+
+  private applyPositions(ps: Pos[], label: string) {
+    this.doc.transact(() => {
+      for (const p of ps) {
+        const n = this.doc.node(p.id);
+        if (n && (n.x !== p.x || n.y !== p.y)) this.doc.patch('nodes', p.id, { x: p.x, y: p.y });
+      }
+    }, label);
+  }
+
+  alignSelection(how: Alignment) {
+    const rs = this.selectedRects();
+    if (rs.length >= 2) this.applyPositions(align(rs, how), 'Align');
+  }
+
+  distributeSelection(axis: 'x' | 'y') {
+    const rs = this.selectedRects();
+    if (rs.length >= 3) this.applyPositions(distribute(rs, axis), 'Distribute');
+  }
+
+  tidySelection() {
+    const rs = this.selectedRects();
+    // Round up to the grid so gaps never shrink below 32.
+    if (rs.length >= 2) this.applyPositions(tidy(rs, 32, snapToGrid.get() ? (v) => Math.ceil(v / 32) * 32 : undefined), 'Tidy up');
   }
 
   /** Applies a color to the selection, whatever kinds it contains. */

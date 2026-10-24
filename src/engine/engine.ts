@@ -41,6 +41,8 @@ export class CanvasEngine {
   marquee: Box | null = null; // world
   guides: Guide[] = [];
   selectedStrokes = new Set<string>();
+  /** Bolder dots while snap to grid is on. */
+  emphasizeGrid = false;
   /** Offset applied to selected strokes while they are dragged (hidden from base). */
   strokeDrag: { dx: number; dy: number } | null = null;
 
@@ -306,7 +308,7 @@ export class CanvasEngine {
   private drawBackground(ctx: CanvasRenderingContext2D, bg: Background) {
     if (bg === 'plain') return;
     const { x, y, zoom } = this.view;
-    let step = (bg === 'lines' ? 40 : 32) * zoom;
+    let step = 32 * zoom; // matches the snap grid
     while (step < 18) step *= 4;
     const d = this.dpr;
     const ox = ((x % step) + step) % step;
@@ -314,7 +316,7 @@ export class CanvasEngine {
     ctx.fillStyle = this.gridColor;
     ctx.beginPath();
     if (bg === 'dots') {
-      const r = Math.max(1, 1.3 * d);
+      const r = Math.max(1, (this.emphasizeGrid ? 2.1 : 1.3) * d);
       for (let gx = ox; gx < this.width; gx += step)
         for (let gy = oy; gy < this.height; gy += step) ctx.rect(gx * d - r / 2, gy * d - r / 2, r, r);
     } else {

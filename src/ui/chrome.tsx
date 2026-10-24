@@ -4,7 +4,7 @@ import type { Controller } from '../controller';
 import type { ShapeKind } from '../model';
 import { accent, HIGHLIGHTER_COLORS, PALETTE, PEN_COLORS, STICKY_COLORS, type ColorName } from '../palette';
 import { theme, useStore, type Store } from '../store';
-import { dockSide, type DockSide } from '../prefs';
+import { dockSide, snapToGrid, type DockSide } from '../prefs';
 import { fullscreenSupported, isFullscreen, toggleFullscreen } from '../fullscreen';
 import { focusNodeSoon, useDocVersion } from './hooks';
 import {
@@ -30,6 +30,7 @@ import {
   UndoIcon,
   ExpandScreenIcon,
   ShrinkIcon,
+  SnapGridIcon,
 } from './icons';
 import { IconButton, Popover } from './Popover';
 import { shapePath } from './nodes';
@@ -366,8 +367,22 @@ export function ZoomControl({ board, view }: { board: Board; view: Store<number>
   const ref = useRef<HTMLButtonElement>(null);
   const z = board.engine?.view.zoom ?? 1;
   const hasSel = board.selection.get().nodes.length + board.selection.get().strokes.length > 0;
+  const snap = useStore(snapToGrid);
   return (
     <div class="zoom glass">
+      <button
+        class={`zoom-grid ${snap ? 'is-on' : ''}`}
+        aria-label={snap ? 'Snap to grid: on (G)' : 'Snap to grid: off (G)'}
+        title={snap ? 'Snap to grid: on (G)' : 'Snap to grid: off (G)'}
+        aria-pressed={snap}
+        onClick={() => {
+          snapToGrid.set(!snap);
+          board.notify(!snap ? 'Snap to grid on' : 'Snap to grid off');
+        }}
+      >
+        <SnapGridIcon size={20} />
+      </button>
+      <span class="zoom-sep" />
       <button class="zoom-step" aria-label="Zoom out" onClick={() => board.engine.zoomBy(0.8)}>
         −
       </button>
