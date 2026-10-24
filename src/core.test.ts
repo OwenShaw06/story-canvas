@@ -99,6 +99,36 @@ describe('document store: undo/redo', () => {
     expect(ids(d, 'nodes')).toEqual([]);
   });
 
+  it('merges typing in one field into one undo step, without leaving anything open', () => {
+    const d = new Doc(newProject());
+    d.put('nodes', sticky('a'));
+    for (const t of ['H', 'He', 'Hey']) d.type('nodes', 'a', { text: t }, 'a:text');
+    expect(d.inTransaction).toBe(false);
+    d.undo();
+    expect((d.node('a') as StickyNode).text).toBe('');
+    d.redo();
+    expect((d.node('a') as StickyNode).text).toBe('Hey');
+  });
+
+  it('starts a new undo step after sealMerge (a new editing session)', () => {
+    const d = new Doc(newProject());
+    d.put('nodes', sticky('a'));
+    d.type('nodes', 'a', { text: 'one' }, 'a:text');
+    d.sealMerge();
+    d.type('nodes', 'a', { text: 'one two' }, 'a:text');
+    d.undo();
+    expect((d.node('a') as StickyNode).text).toBe('one');
+  });
+
+  it('endAll closes a group whose end was lost', () => {
+    const d = new Doc(newProject());
+    d.begin('Move');
+    d.put('nodes', sticky('a'));
+    d.endAll();
+    expect(d.inTransaction).toBe(false);
+    expect(d.canUndo).toBe(true);
+  });
+
   it('ignores an unbalanced end()', () => {
     const d = new Doc(newProject());
     d.end();

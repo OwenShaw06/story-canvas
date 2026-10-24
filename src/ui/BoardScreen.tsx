@@ -141,6 +141,7 @@ function NodesLayer({ board }: { board: Board }) {
   const sel = useStore(board.selection);
   const flash = useStore(board.flash);
   const filter = useStore(board.tagFilter);
+  const lifted = useStore(board.lifted);
   const t = useStore(theme);
   const selected = new Set(sel.nodes);
   const templates = new Map(board.doc.p.templates.map((x) => [x.id, x]));
@@ -154,6 +155,7 @@ function NodesLayer({ board }: { board: Board }) {
           selected={selected.has(n.id)}
           dimmed={filter.length > 0 && !(n.kind === 'card' && n.tags.some((g) => filter.includes(g)))}
           flashing={flash === n.id}
+          lifted={lifted.has(n.id)}
         />
   );
   // Frames, then connectors, then everything else.

@@ -64,7 +64,7 @@ export function TopBar(props: {
         />
       </div>
       <div class="bar bar-right glass">
-        <IconButton label="Undo" disabled={!board.doc.canUndo && !board.doc.inTransaction} onClick={() => undoRedo(board, 'undo')}>
+        <IconButton label="Undo" disabled={!board.doc.canUndo} onClick={() => undoRedo(board, 'undo')}>
           <UndoIcon />
         </IconButton>
         <IconButton label="Redo" disabled={!board.doc.canRedo} onClick={() => undoRedo(board, 'redo')}>

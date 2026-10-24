@@ -27,7 +27,8 @@ type CollChange = {
   orderAfter?: string[];
 };
 
-type Command = { changes: Partial<Record<Coll, CollChange>>; label?: string };
+/** mergeKey: consecutive commands with the same key (e.g. typing in one field) merge into one undo step. */
+type Command = { changes: Partial<Record<Coll, CollChange>>; label?: string; mergeKey?: string };
 
 export const HISTORY_LIMIT = 200;
 
@@ -73,8 +74,22 @@ export class Doc {
   // ---------- transactions ----------
 
   /** Groups every edit until the matching end() into one undo step. */
-  begin(label?: string) {
-    if (this.depth++ === 0) this.open = { changes: {}, label };
+  begin(label?: string, mergeKey?: string) {
+    if (this.depth++ === 0) this.open = { changes: {}, label, mergeKey };
+  }
+
+  /** Closes any open groups (safety net if a gesture's end was lost). */
+  endAll() {
+    if (this.depth <= 0) return;
+    this.depth = 1;
+    this.atomic = 0;
+    this.end();
+  }
+
+  /** Stops the next edit from merging into the last undo step. */
+  sealMerge() {
+    const top = this.undoStack[this.undoStack.length - 1];
+    if (top) top.mergeKey = undefined;
   }
 
   end() {
@@ -87,16 +102,20 @@ export class Doc {
     const cmd = this.open;
     this.open = null;
     if (cmd && this.finalize(cmd)) {
-      this.undoStack.push(cmd);
-      if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+      const top = this.undoStack[this.undoStack.length - 1];
+      if (cmd.mergeKey && top?.mergeKey === cmd.mergeKey) mergeInto(top, cmd);
+      else {
+        this.undoStack.push(cmd);
+        if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
+      }
       this.redoStack = [];
       this.pending.add('meta');
     }
     this.flushNotify();
   }
 
-  transact<T>(fn: () => T, label?: string): T {
-    this.begin(label);
+  transact<T>(fn: () => T, label?: string, mergeKey?: string): T {
+    this.begin(label, mergeKey);
     this.atomic++;
     try {
       return fn();
@@ -138,6 +157,11 @@ export class Doc {
     const cur = this.get(c, id);
     if (!cur) return;
     this.put(c, { ...cur, ...fields } as EntityOf<C>);
+  }
+
+  /** A text edit: consecutive edits with the same key become one undo step. */
+  type<C extends Coll>(c: C, id: string, fields: Partial<EntityOf<C>>, key: string) {
+    this.transact(() => this.patch(c, id, fields), 'Typing', key);
   }
 
   remove(c: Coll, ids: Iterable<string>) {
@@ -270,5 +294,18 @@ export class Doc {
     this.pending = new Set();
     this.version++;
     for (const fn of this.listeners) fn(changed);
+  }
+}
+
+function mergeInto(top: Command, cmd: Command) {
+  for (const c of Object.keys(cmd.changes) as Coll[]) {
+    const ch = cmd.changes[c]!;
+    const tc: CollChange = (top.changes[c] ??= { before: new Map(), after: new Map() });
+    for (const [id, b] of ch.before) if (!tc.before.has(id)) tc.before.set(id, b);
+    for (const [id, a] of ch.after) tc.after.set(id, a);
+    if (ch.orderBefore) {
+      tc.orderBefore ??= ch.orderBefore;
+      tc.orderAfter = ch.orderAfter;
+    }
   }
 }

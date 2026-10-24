@@ -29,6 +29,7 @@ type Props = {
   selected: boolean;
   dimmed: boolean;
   flashing: boolean;
+  lifted: boolean;
 };
 
 /** One board object. Memoized: re-renders only when its own data changes. */
@@ -59,7 +60,7 @@ export const NodeView = memo(
     if (fixedHeight) style.height = `${n.h}px`;
     else if (n.kind === 'card' && !n.collapsed) style.minHeight = `${n.h}px`;
 
-    const cls = ['node', `node-${n.kind}`, p.selected && 'is-selected', p.dimmed && 'is-dimmed', p.flashing && 'is-flashing']
+    const cls = ['node', `node-${n.kind}`, p.selected && 'is-selected', p.dimmed && 'is-dimmed', p.flashing && 'is-flashing', p.lifted && 'is-lifted']
       .filter(Boolean)
       .join(' ');
 
@@ -80,35 +81,11 @@ export const NodeView = memo(
     a.theme === b.theme &&
     a.selected === b.selected &&
     a.dimmed === b.dimmed &&
-    a.flashing === b.flashing,
+    a.flashing === b.flashing &&
+    a.lifted === b.lifted,
 );
 
 // ---------- shared editing helpers ----------
-
-/** Groups all typing in one focus session into a single undo step. */
-function useEditGroup(board: Board) {
-  const open = useRef(false);
-  useEffect(
-    () => () => {
-      if (open.current) board.doc.end();
-    },
-    [board],
-  );
-  return {
-    onFocus: () => {
-      if (!open.current) {
-        open.current = true;
-        board.doc.begin('Edit');
-      }
-    },
-    onBlur: () => {
-      if (open.current) {
-        open.current = false;
-        board.doc.end();
-      }
-    },
-  };
-}
 
 function AutoTextarea(props: {
   value: string;
@@ -122,7 +99,6 @@ function AutoTextarea(props: {
   style?: Record<string, string | number>;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const group = useEditGroup(props.board);
   const fit = () => {
     const el = ref.current;
     if (!el) return;
@@ -146,9 +122,8 @@ function AutoTextarea(props: {
         props.onInput((e.currentTarget as HTMLTextAreaElement).value);
         fit();
       }}
-      onFocus={group.onFocus}
       onBlur={() => {
-        group.onBlur();
+        props.board.doc.sealMerge();
         props.onBlur?.();
       }}
     />
@@ -165,7 +140,6 @@ function TextInput(props: {
   field?: string;
   onBlur?: () => void;
 }) {
-  const group = useEditGroup(props.board);
   return (
     <input
       data-edit
@@ -179,9 +153,8 @@ function TextInput(props: {
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
       }}
-      onFocus={group.onFocus}
       onBlur={() => {
-        group.onBlur();
+        props.board.doc.sealMerge();
         props.onBlur?.();
       }}
     />
@@ -226,10 +199,9 @@ function CardBody(p: Props & { node: CardNode }) {
   const titleField = t?.fields.find((f) => f.type === 'text');
   const rest = t?.fields.filter((f) => f !== titleField) ?? [];
   const color = accent(n.color ?? t?.color, theme);
-  const setField = (key: string, v: string) => board.doc.patch('nodes', n.id, { fields: { ...n.fields, [key]: v } });
+  const setField = (key: string, v: string) => board.doc.type('nodes', n.id, { fields: { ...n.fields, [key]: v } }, `${n.id}:${key}`);
   const [tagDraft, setTagDraft] = useState('');
   const [revealed, setRevealed] = useState<string | null>(null);
-  const tagGroup = useEditGroup(board);
   // Filled fields show; empty ones collapse into "+ Field" chips while selected.
   const shown = rest.filter((f) => n.fields[f.key] || f.key === revealed);
   const empty = rest.filter((f) => !shown.includes(f));
@@ -361,11 +333,7 @@ function CardBody(p: Props & { node: CardNode }) {
                     addTag();
                   }
                 }}
-                onFocus={tagGroup.onFocus}
-                onBlur={() => {
-                  addTag();
-                  tagGroup.onBlur();
-                }}
+                onBlur={addTag}
               />
             )}
           </div>
@@ -430,7 +398,7 @@ function StickyBody({ node: n, board, theme }: Props & { node: StickyNode }) {
         style={{ fontSize: `${fontSize}px` }}
         value={n.text}
         placeholder="Write something…"
-        onInput={(v) => board.doc.patch('nodes', n.id, { text: v })}
+        onInput={(v) => board.doc.type('nodes', n.id, { text: v }, `${n.id}:text`)}
       />
       <NodeInk ink={n.ink} theme={theme} />
     </div>
@@ -451,7 +419,7 @@ function TextBody({ node: n, board, theme }: Props & { node: TextNode }) {
       style={{ fontSize: `${TEXT_SIZES[n.size]}px`, color }}
       value={n.text}
       placeholder="Type something"
-      onInput={(v) => board.doc.patch('nodes', n.id, { text: v })}
+      onInput={(v) => board.doc.type('nodes', n.id, { text: v }, `${n.id}:text`)}
     />
   );
 }
@@ -498,7 +466,7 @@ function ShapeBody({ node: n, board, theme }: Props & { node: ShapeNode }) {
         <path d={shapePath(n.shape, n.w, n.h, 1.5)} fill={fill(n.color, theme)} stroke={accent(n.color, theme)} stroke-width="2" stroke-linejoin="round" />
       </svg>
       <div class="shape-label">
-        <AutoTextarea board={board} primary class="shape-text" value={n.text} placeholder="" onInput={(v) => board.doc.patch('nodes', n.id, { text: v })} />
+        <AutoTextarea board={board} primary class="shape-text" value={n.text} placeholder="" onInput={(v) => board.doc.type('nodes', n.id, { text: v }, `${n.id}:text`)} />
       </div>
     </div>
   );
@@ -517,7 +485,7 @@ function FrameBody({ node: n, board, theme }: Props & { node: FrameNode }) {
   return (
     <div class="frame" style={{ '--frame-accent': accent(n.color, theme) }}>
       <div class="frame-label">
-        <TextInput board={board} primary class="frame-title" value={n.label} placeholder="Frame" onInput={(v) => board.doc.patch('nodes', n.id, { label: v })} />
+        <TextInput board={board} primary class="frame-title" value={n.label} placeholder="Frame" onInput={(v) => board.doc.type('nodes', n.id, { label: v }, `${n.id}:label`)} />
       </div>
     </div>
   );

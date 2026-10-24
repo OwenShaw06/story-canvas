@@ -7,9 +7,9 @@ import { hasInk, INK_AUTO, uid, type BoardNode, type Point, type Stroke } from '
 /** Touches that start this soon after the pen lifts are treated as a palm. */
 const PALM_GRACE_MS = 500;
 /** Touch contacts wider than this (CSS px) are treated as a palm. */
-const PALM_SIZE_PX = 60;
+const PALM_SIZE_PX = 140;
 /** Movement (screen px) before a press becomes a drag. */
-const DRAG_SLOP = { touch: 8, pen: 4, mouse: 3 };
+const DRAG_SLOP = { touch: 6, pen: 4, mouse: 3 };
 const ERASER_RADIUS_PX = 12;
 const SNAP_PX = 6;
 const DOUBLE_TAP_MS = 350;
@@ -31,6 +31,11 @@ type Gesture =
       nodeId: string | null;
       linkId: string | null;
       editable: Element | null;
+      target: Element;
+      /** Pressed inside the field being edited: a tap places the caret natively, a drag still moves. */
+      inField: boolean;
+      /** Whether the node was already selected before this press. */
+      wasSelected: boolean;
       /** True once movement passed the slop and the press became a move. */
       moving: boolean;
       movers: { id: string; x: number; y: number }[];
@@ -102,21 +107,43 @@ export class Controller {
     on(el, 'pointerup', (e: PointerEvent) => this.up(e, false));
     on(el, 'pointercancel', (e: PointerEvent) => this.up(e, true));
 
-    // iOS: stop the magnifier, text selection and page zoom, except when a
-    // finger (or the Pencil in select mode) taps a text field to edit it.
+    // iOS: the board handles every touch itself (taps, focus, buttons), so
+    // Safari never starts a magnifier, text selection, scroll or page zoom.
+    // The only exception is the text field being edited, where native caret
+    // placement and selection are what you want.
     on(
       el,
       'touchstart',
       (e: TouchEvent) => {
-        const editable = (e.target as Element).closest?.('[data-edit], [data-btn]');
-        const stylus = Array.from(e.changedTouches).some((t) => (t as Touch & { touchType?: string }).touchType === 'stylus');
-        const inkTool = ['pen', 'highlighter', 'eraser', 'lasso'].includes(this.board.tool.get());
-        if (!editable || (stylus && inkTool)) e.preventDefault();
+        if (!insideFocusedField(e.target)) e.preventDefault();
       },
       { passive: false },
     );
-    on(el, 'touchmove', (e: TouchEvent) => e.preventDefault(), { passive: false });
-    on(el, 'gesturestart', (e: Event) => e.preventDefault(), { passive: false });
+    on(
+      el,
+      'touchmove',
+      (e: TouchEvent) => {
+        const dragging = this.g?.type === 'press' ? this.g.moving : !!this.g;
+        if (dragging || !insideFocusedField(e.target)) e.preventDefault();
+      },
+      { passive: false },
+    );
+    // Safari's own pinch events: a fallback that zooms if pointer-based pinch didn't start.
+    on(el, 'gesturestart', (e: Event) => this.gesture(e as GestureLike, 'start'), { passive: false });
+    on(el, 'gesturechange', (e: Event) => this.gesture(e as GestureLike, 'change'), { passive: false });
+    on(el, 'gestureend', (e: Event) => this.gesture(e as GestureLike, 'end'), { passive: false });
+    // Button taps inside the board are replayed by pressEnd; drop the browser's own click so nothing fires twice.
+    on(
+      el,
+      'click',
+      (e: MouseEvent) => {
+        if (e.isTrusted && (e.target as Element).closest?.('[data-btn]')) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      { capture: true },
+    );
     on(el, 'contextmenu', (e: Event) => {
       if (!(e.target as Element).closest?.('[data-edit]')) e.preventDefault();
     });
@@ -151,7 +178,14 @@ export class Controller {
 
   private down(e: PointerEvent) {
     this.engine.stopAnimation();
+    // Safety net: if a previous gesture's end was lost, never leave an undo group open.
+    if (!this.g && !this.touches.size && this.doc.inTransaction) this.doc.endAll();
     const kind = this.kind(e);
+    const inField = insideFocusedField(e.target);
+    // Mouse in the field you're typing in: normal text selection.
+    if (inField && kind === 'mouse') return;
+    // Pressing anywhere that isn't a field finishes the edit.
+    if (!inField && !(e.target as Element).closest('[data-edit]')) blurField();
     if (kind === 'touch') return this.touchDown(e);
     if (kind === 'mouse' && (e.button === 1 || (e.button === 0 && this.spaceDown))) {
       e.preventDefault();
@@ -165,14 +199,10 @@ export class Controller {
     this.cancelTouches();
 
     const tool = this.board.tool.get();
-    const t = e.target as Element;
-    const editable = t.closest('[data-edit]');
-    const selectLike = tool === 'select';
-    if (!(editable && selectLike)) e.preventDefault();
-
-    // Capturing redirects the click away from buttons inside nodes, so a
-    // plain press only captures once it turns into a drag (see pressMove).
-    if (tool !== 'select') this.capture(e.pointerId);
+    if (!inField) e.preventDefault();
+    // Capture so the gesture keeps working even if the element under the
+    // finger re-renders. Taps on buttons are replayed as clicks in pressEnd.
+    this.capture(e.pointerId);
     if (tool === 'pen' || tool === 'highlighter') return this.startStroke(e, tool);
     if (tool === 'eraser') return this.startErase(e);
     if (tool === 'lasso') return this.startLasso(e);
@@ -442,12 +472,10 @@ export class Controller {
     const w = this.engine.clientToWorld(e.clientX, e.clientY);
 
     const sel = this.board.selection.get();
-    if (nodeId) {
-      if (e.shiftKey || e.metaKey) this.board.toggleNode(nodeId);
-      else if (!sel.nodes.includes(nodeId)) this.board.selectNodes([nodeId]);
-    } else if (linkId) {
-      this.board.setSelection({ nodes: [], links: [linkId], strokes: [] });
-    }
+    const wasSelected = !!nodeId && sel.nodes.includes(nodeId);
+    // Pencil and mouse select on press for instant feedback. A finger waits for
+    // a tap or a drag, so starting a pinch on a card doesn't select it.
+    if (kind !== 'touch') this.selectPressed(nodeId, linkId, e.shiftKey || e.metaKey);
 
     // Pressing inside the selected ink's bounds drags the selection.
     let onSelection = false;
@@ -469,6 +497,9 @@ export class Controller {
       nodeId,
       linkId,
       editable,
+      target: t,
+      inField: insideFocusedField(t),
+      wasSelected,
       moving: false,
       movers: [],
       strokes: [],
@@ -502,8 +533,19 @@ export class Controller {
     this.dragMove(e, g);
   }
 
+  private selectPressed(nodeId: string | null, linkId: string | null, toggle = false) {
+    const sel = this.board.selection.get();
+    if (nodeId) {
+      if (toggle) this.board.toggleNode(nodeId);
+      else if (!sel.nodes.includes(nodeId)) this.board.selectNodes([nodeId]);
+    } else if (linkId) {
+      this.board.setSelection({ nodes: [], links: [linkId], strokes: [] });
+    }
+  }
+
   private beginMove(g: Extract<Gesture, { type: 'press' }>) {
-    (document.activeElement as HTMLElement | null)?.blur?.();
+    blurField();
+    if (g.kind === 'touch') this.selectPressed(g.nodeId, null);
     const sel = this.board.selection.get();
     const nodeIds = new Set(sel.nodes);
     const strokeIds = new Set(sel.strokes);
@@ -517,6 +559,7 @@ export class Controller {
       }
     }
     g.movers = this.doc.p.nodes.filter((n) => nodeIds.has(n.id)).map((n) => ({ id: n.id, x: n.x, y: n.y }));
+    this.board.lifted.set(new Set(g.movers.map((m) => m.id)));
     g.strokes = [...strokeIds];
     this.engine.selectedStrokes = strokeIds;
     this.engine.strokeDrag = strokeIds.size ? { dx: 0, dy: 0 } : null;
@@ -597,12 +640,13 @@ export class Controller {
       this.engine.strokeDrag = null;
       this.engine.guides = [];
       this.engine.selectedStrokes = new Set(this.board.selection.get().strokes);
+      this.board.lifted.set(new Set());
       this.doc.end();
       this.engine.requestBase();
       this.engine.requestLive();
       return;
     }
-    if (cancelled) return;
+    if (cancelled || g.inField) return;
     // A tap.
     const now = performance.now();
     const lt = this.lastTap;
@@ -610,26 +654,53 @@ export class Controller {
     this.lastTap = isDouble ? null : { t: now, nodeId: g.nodeId, x: e.clientX, y: e.clientY };
 
     if (!g.nodeId && !g.linkId && g.onEmpty !== 'none') {
-      (document.activeElement as HTMLElement | null)?.blur?.();
+      blurField();
       this.board.clearSelection();
       return;
     }
-    if (g.nodeId && isDouble) this.doubleTap(g.nodeId, e.target as Element);
-  }
-
-  private doubleTap(nodeId: string, target: Element) {
-    const n = this.doc.node(nodeId);
-    if (!n) return;
-    const nodeEl = this.el.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(nodeId)}"]`);
-    if (n.kind === 'card' && target.closest('[data-card-header]')) {
-      this.doc.patch('nodes', n.id, { collapsed: !n.collapsed });
+    if (g.kind === 'touch') this.selectPressed(g.nodeId, g.linkId);
+    // Buttons inside cards (collapse, chips, + Field) get their click here.
+    const btn = g.target.closest<HTMLElement>('[data-btn]');
+    if (btn) {
+      btn.click();
       return;
     }
-    const field = nodeEl?.querySelector<HTMLTextAreaElement | HTMLInputElement>('[data-edit][data-primary], [data-edit]');
-    if (field && !target.closest('[data-edit]')) {
-      field.focus();
-      field.select?.();
+    // Tap a text field of a selected object to type; the first tap selects.
+    const field = g.target.closest<HTMLElement>('[data-edit]');
+    if (field && (g.wasSelected || isDouble)) {
+      focusField(field);
+      return;
     }
+    if (g.nodeId && isDouble) {
+      this.doubleTap(g.nodeId);
+      return;
+    }
+    if (!field) blurField();
+  }
+
+  /** Double-tap an object (not on a field) to edit its main text. */
+  private doubleTap(nodeId: string) {
+    const nodeEl = this.el.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(nodeId)}"]`);
+    const field = nodeEl?.querySelector<HTMLElement>('[data-edit][data-primary]') ?? nodeEl?.querySelector<HTMLElement>('[data-edit]');
+    if (field) focusField(field);
+  }
+
+  // ---------- Safari pinch fallback ----------
+
+  private gs: { view: { x: number; y: number; zoom: number }; at: [number, number] } | null = null;
+
+  private gesture(e: GestureLike, phase: 'start' | 'change' | 'end') {
+    e.preventDefault();
+    if (phase === 'end' || this.pinch) {
+      this.gs = null;
+      return;
+    }
+    const at = this.engine.clientToLocal(e.clientX ?? this.engine.width / 2, e.clientY ?? this.engine.height / 2);
+    if (phase === 'start' || !this.gs) {
+      this.gs = { view: { ...this.engine.view }, at };
+      return;
+    }
+    this.engine.setView(pinchView(this.gs.view, this.gs.at, 1, at, e.scale || 1));
   }
 
   // ---------- handles: resize & connect ----------
@@ -738,6 +809,7 @@ export class Controller {
       if (this.multi) this.multi.max = Math.max(this.multi.max, this.touches.size + this.ignored.size);
       return;
     }
+    this.capture(e.pointerId);
     this.touches.set(e.pointerId, [e.clientX, e.clientY]);
     if (this.multi) this.multi.max = Math.max(this.multi.max, this.touches.size);
 
@@ -763,6 +835,7 @@ export class Controller {
     if (g.type === 'press' && g.moving) {
       this.engine.strokeDrag = null;
       this.engine.guides = [];
+      this.board.lifted.set(new Set());
       this.doc.end();
     } else if (g.type === 'resize') this.doc.end();
     else if (g.type === 'link') this.board.linkDraft.set(null);
@@ -906,4 +979,34 @@ function coalesced(e: PointerEvent): PointerEvent[] {
 
 function isEditing(t: EventTarget | null): boolean {
   return !!(t as Element | null)?.closest?.('input, textarea, select, [contenteditable="true"]');
+}
+
+type GestureLike = Event & { scale?: number; clientX?: number; clientY?: number };
+
+function focusedField(): HTMLElement | null {
+  const a = document.activeElement as HTMLElement | null;
+  return a && a !== document.body && a.matches('input, textarea, [contenteditable="true"]') ? a : null;
+}
+
+/** True when the target is inside the text field that currently has focus. */
+function insideFocusedField(t: EventTarget | null): boolean {
+  const f = focusedField();
+  return !!f && !!t && f.contains(t as Node);
+}
+
+function blurField() {
+  focusedField()?.blur();
+}
+
+/** Focuses a field with the caret at the end (called from a tap, so iOS shows the keyboard). */
+function focusField(el: HTMLElement) {
+  el.focus({ preventScroll: true });
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    const n = el.value.length;
+    try {
+      el.setSelectionRange(n, n);
+    } catch {
+      /* some input types don't support selection */
+    }
+  }
 }

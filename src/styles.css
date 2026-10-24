@@ -219,6 +219,32 @@ mark {
   }
 }
 
+.node > * {
+  transition:
+    transform 0.22s var(--ease-spring),
+    box-shadow 0.22s var(--ease-out),
+    filter 0.22s var(--ease-out);
+}
+
+/* Picked up: a touch bigger, a deeper shadow, like lifting a card off the table. */
+.node.is-lifted {
+  z-index: 1;
+}
+
+.node.is-lifted > .card,
+.node.is-lifted > .sticky,
+.node.is-lifted > .image {
+  transform: scale(1.025) rotate(-0.4deg);
+  box-shadow:
+    0 2px 4px rgba(20, 18, 14, 0.08),
+    0 24px 48px -16px rgba(20, 18, 14, 0.35);
+}
+
+.node.is-lifted > .shape {
+  transform: scale(1.03);
+  filter: drop-shadow(0 16px 20px rgba(20, 18, 14, 0.18));
+}
+
 .node.is-dimmed {
   opacity: 0.2;
   filter: saturate(0.3);

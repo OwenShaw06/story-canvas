@@ -50,6 +50,8 @@ export class Board {
   /** Tag filter: cards without one of these tags are dimmed. */
   tagFilter: Store<string[]> = store<string[]>([]);
   toast: Store<string | null> = store<string | null>(null);
+  /** Nodes being dragged right now (drawn lifted). */
+  lifted: Store<Set<string>> = store<Set<string>>(new Set());
   /** Last insertion point, so repeated inserts cascade instead of stacking. */
   private lastInsert: { x: number; y: number; n: number } | null = null;
 

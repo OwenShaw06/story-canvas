@@ -43,7 +43,7 @@ export function ContextBar({ board, viewTick }: { board: Board; viewTick: Store<
   const strokes = sel.strokes.length;
   if (!nodes.length && !links.length && !strokes) return null;
   // Hide while dragging or resizing.
-  if (board.doc.inTransaction && !document.activeElement?.closest('[data-edit]')) return null;
+  if (board.doc.inTransaction) return null;
 
   // Position above the selection, flipping below near the top edge.
   let anchor: { x: number; top: number; bottom: number } | null = null;
@@ -220,11 +220,10 @@ function LinkLabelInput({ board, id, value }: { board: Board; id: string; value:
       class="link-label-input"
       placeholder="Label, e.g. brother of"
       value={value}
-      onFocus={() => board.doc.begin('Label')}
-      onBlur={() => board.doc.end()}
+      onBlur={() => board.doc.sealMerge()}
       onInput={(e) => {
         const v = (e.currentTarget as HTMLInputElement).value;
-        board.doc.patch('links', id, { label: v || undefined });
+        board.doc.type('links', id, { label: v || undefined }, `${id}:label`);
       }}
       onKeyDown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
     />
