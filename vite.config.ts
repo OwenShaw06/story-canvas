@@ -3,6 +3,8 @@ import preact from '@preact/preset-vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  // Relative paths so the built site works from any folder, e.g. GitHub Pages /story-canvas/.
+  base: './',
   plugins: [
     preact(),
     VitePWA({

@@ -61,8 +61,12 @@ npm run build    # outputs dist/
 ```
 
 The dev server over plain http is fine for trying things on the iPad, but Safari only
-enables offline mode and reliable install over HTTPS. Deploy `dist/` to any static HTTPS
-host (Netlify, Cloudflare Pages, GitHub Pages) for real use.
+enables offline mode and reliable install over HTTPS. It's hosted on GitHub Pages at
+https://owenshaw06.github.io/story-canvas/ — open that on the iPad and Share → Add to Home Screen.
+
+```bash
+npm run deploy   # tests, builds, and publishes dist/ to the gh-pages branch
+```
 
 ## Layout
 
