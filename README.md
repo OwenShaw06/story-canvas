@@ -39,7 +39,7 @@ ink, whiteboard objects, and structured story cards. Fully local and offline.
   colour; edit the list in the tag panel
 
 **Organise & export**
-- World list with thumbnails; rename, duplicate, delete
+- World list with thumbnails or your own cover image (⋯ → Set cover image…); rename, duplicate, delete
 - Search across every card field, note and frame; tap a result to fly to it
 - Export: PNG, PDF, Markdown for Obsidian (one note per card, connections as [[wiki links]]),
   and a complete JSON backup (images included) that can be re-opened as a new world

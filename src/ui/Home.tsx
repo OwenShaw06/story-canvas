@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { createProject, deleteProject, duplicateProject, listProjects, loadProject, putImage, renameProject, saveProject } from '../db';
+import { createProject, deleteProject, duplicateProject, listProjects, loadProject, putImage, renameProject, saveProject, setProjectCover } from '../db';
 import { dataUrlToBlob, importProject } from '../io';
 import type { Project, ProjectMeta } from '../model';
-import { BookIcon, DuplicateIcon, EditIcon, MoreIcon, PlusIcon, TrashIcon, UploadIcon } from './icons';
+import { BookIcon, CloseIcon, DuplicateIcon, EditIcon, ImageIcon, MoreIcon, PlusIcon, TrashIcon, UploadIcon } from './icons';
 import { Popover } from './Popover';
 
 function ago(t: number): string {
@@ -22,6 +22,8 @@ export function Home({ onOpen }: { onOpen: (p: Project) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<ProjectMeta | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+  const coverRef = useRef<HTMLInputElement>(null);
+  const coverFor = useRef<string | null>(null);
   const anchors = useRef(new Map<string, HTMLElement>());
 
   const refresh = () => listProjects().then(setList).catch(() => setError('Story Canvas could not open its storage. Private browsing can cause this.'));
@@ -46,6 +48,33 @@ export function Home({ onOpen }: { onOpen: (p: Project) => void }) {
     } catch (err) {
       setError((err as Error).message);
     }
+  };
+
+  const pickCover = (id: string) => {
+    setMenu(null);
+    coverFor.current = id;
+    coverRef.current?.click();
+  };
+
+  const onCoverFile = async (e: Event) => {
+    const input = e.currentTarget as HTMLInputElement;
+    const f = input.files?.[0];
+    input.value = '';
+    const id = coverFor.current;
+    coverFor.current = null;
+    if (!f || !id) return;
+    try {
+      await setProjectCover(id, await coverDataUrl(f));
+      void refresh();
+    } catch {
+      setError('That image could not be used as a cover. Try a JPEG or PNG.');
+    }
+  };
+
+  const removeCover = async (id: string) => {
+    setMenu(null);
+    await setProjectCover(id, null);
+    void refresh();
   };
 
   return (
@@ -74,8 +103,13 @@ export function Home({ onOpen }: { onOpen: (p: Project) => void }) {
         </button>
         {list?.map((m) => (
           <div class="world-tile" key={m.id}>
-            <button class="world-thumb" onClick={() => open(m.id)} aria-label={`Open ${m.name}`}>
-              {m.thumbnail ? (
+            <button class={`world-thumb ${m.cover ? 'has-cover' : ''}`} onClick={() => open(m.id)} aria-label={`Open ${m.name}`}>
+              {m.cover ? (
+                <>
+                  <img class="cover-backdrop" src={m.cover} alt="" draggable={false} />
+                  <img class="cover-image" src={m.cover} alt="" draggable={false} />
+                </>
+              ) : m.thumbnail ? (
                 <img src={m.thumbnail} alt="" draggable={false} />
               ) : (
                 <span class="world-thumb-empty">
@@ -122,6 +156,14 @@ export function Home({ onOpen }: { onOpen: (p: Project) => void }) {
               <button class="menu-item" onClick={() => (setMenu(null), setRenaming(m.id))}>
                 <EditIcon size={18} /> Rename
               </button>
+              <button class="menu-item" onClick={() => pickCover(m.id)}>
+                <ImageIcon size={18} /> {m.cover ? 'Change cover…' : 'Set cover image…'}
+              </button>
+              {m.cover && (
+                <button class="menu-item" onClick={() => removeCover(m.id)}>
+                  <CloseIcon size={18} /> Remove cover
+                </button>
+              )}
               <button
                 class="menu-item"
                 onClick={async () => {
@@ -164,6 +206,7 @@ export function Home({ onOpen }: { onOpen: (p: Project) => void }) {
           }}
         />
       )}
+      <input ref={coverRef} type="file" accept="image/*" hidden onChange={onCoverFile} />
       <input ref={importRef} type="file" accept=".json,application/json" hidden onChange={onImport} />
     </div>
   );
@@ -195,4 +238,22 @@ function ConfirmDelete(props: { name: string; onCancel: () => void; onConfirm: (
       </div>
     </div>
   );
+}
+
+/** Shrinks a picked photo to a cover-sized JPEG so the worlds list stays fast. */
+async function coverDataUrl(file: Blob, maxSide = 900): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const k = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * k));
+    c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.85);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

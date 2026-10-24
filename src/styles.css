@@ -2700,6 +2700,28 @@ mark {
   display: block;
 }
 
+/* A chosen cover fills the tile edge to edge, with no board-preview border. */
+.world-thumb.has-cover {
+  position: relative;
+  border-bottom-color: transparent;
+}
+
+/* Book covers are usually tall: show the whole thing over a blurred copy of itself. */
+.world-thumb .cover-backdrop {
+  position: absolute;
+  inset: -12%;
+  width: 124%;
+  height: 124%;
+  filter: blur(22px) saturate(1.2) brightness(0.8);
+}
+
+.world-thumb .cover-image {
+  position: relative;
+  object-fit: contain;
+  padding: 10px 0;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.35));
+}
+
 .world-thumb-empty {
   width: 100%;
   height: 100%;

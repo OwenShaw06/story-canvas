@@ -59,5 +59,7 @@ export function normalizeProject(raw: any, opts: { newId?: boolean } = {}): Proj
     templates,
     background: ['dots', 'grid', 'lines', 'plain'].includes(raw.background) ? raw.background : 'dots',
     tagPresets: Array.isArray(raw.tagPresets) ? raw.tagPresets.filter((t: unknown) => typeof t === 'string') : [...DEFAULT_TAGS],
+    ...(typeof raw.cover === 'string' && raw.cover.startsWith('data:image/') ? { cover: raw.cover } : {}),
+    ...(typeof raw.coverAt === 'number' ? { coverAt: raw.coverAt } : {}),
   };
 }

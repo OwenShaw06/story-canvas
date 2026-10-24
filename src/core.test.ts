@@ -365,3 +365,22 @@ describe('deleting a world', () => {
     expect((await listProjects()).some((m) => m.id === p.id)).toBe(false);
   });
 });
+
+describe('world covers', () => {
+  it('sets, survives an older board save, and removes', async () => {
+    const { createProject, setProjectCover, saveProject, loadProject, listProjects } = await import('./db');
+    const p = await createProject('Covered');
+    const stale = structuredClone(p); // e.g. the open board's copy, saved late
+    await setProjectCover(p.id, 'data:image/jpeg;base64,COVER');
+    await saveProject(stale);
+    expect((await loadProject(p.id))?.cover).toBe('data:image/jpeg;base64,COVER');
+    expect((await listProjects()).find((m) => m.id === p.id)?.cover).toBe('data:image/jpeg;base64,COVER');
+    await setProjectCover(p.id, null);
+    expect((await loadProject(p.id))?.cover).toBeUndefined();
+  });
+
+  it('travels with a backup', () => {
+    const p = { ...newProject('Backup'), cover: 'data:image/jpeg;base64,COVER', coverAt: 1 };
+    expect(importProject(exportProject(p)).project.cover).toBe('data:image/jpeg;base64,COVER');
+  });
+});

@@ -47,6 +47,8 @@ export function metaFor(p: Project, thumbnail?: string): ProjectMeta {
     cardCount: p.nodes.filter((n) => n.kind === 'card').length,
     nodeCount: p.nodes.length + p.strokes.length,
     ...(thumbnail ? { thumbnail } : {}),
+    ...(p.cover ? { cover: p.cover } : {}),
+    ...(p.coverAt ? { coverAt: p.coverAt } : {}),
   };
 }
 
@@ -77,7 +79,14 @@ export async function saveProject(p: Project, thumbnail?: string): Promise<void>
   if (deleted.has(p.id)) return;
   const d = await db();
   const tx = d.transaction(['projects', 'projectMeta'], 'readwrite');
-  const old = thumbnail ? undefined : await tx.objectStore('projectMeta').get(p.id);
+  const old = await tx.objectStore('projectMeta').get(p.id);
+  // The cover is set from the worlds list while an open board's copy may still be saving:
+  // whichever change is newer wins, and the board's copy catches up.
+  if (old?.coverAt && old.coverAt > (p.coverAt ?? 0)) {
+    p.coverAt = old.coverAt;
+    if (old.cover) p.cover = old.cover;
+    else delete p.cover;
+  }
   await Promise.all([
     tx.objectStore('projects').put(p),
     tx.objectStore('projectMeta').put(metaFor(p, thumbnail ?? old?.thumbnail)),
@@ -129,6 +138,16 @@ export async function duplicateProject(id: string): Promise<Project | undefined>
   const old = (await (await db()).get('projectMeta', id))?.thumbnail;
   await saveProject(copy, old);
   return copy;
+}
+
+/** Sets (or, with null, removes) a world's cover image. */
+export async function setProjectCover(id: string, cover: string | null): Promise<void> {
+  const p = await loadProject(id);
+  if (!p) return;
+  if (cover) p.cover = cover;
+  else delete p.cover;
+  p.coverAt = Date.now();
+  await saveProject(p);
 }
 
 export async function deleteProject(id: string): Promise<void> {

@@ -98,6 +98,10 @@ export type Project = {
   background: Background;
   /** Tags offered when tagging a card (editable). */
   tagPresets: string[];
+  /** Cover image for the worlds list (JPEG data URL), chosen by the writer. */
+  cover?: string;
+  /** When the cover was last set or removed, so an older save can't undo it. */
+  coverAt?: number;
 };
 
 /** Lightweight listing entry for the project screen. */
@@ -107,6 +111,8 @@ export type ProjectMeta = {
   createdAt: number;
   updatedAt: number;
   thumbnail?: string;
+  cover?: string;
+  coverAt?: number;
   cardCount: number;
   nodeCount: number;
 };
