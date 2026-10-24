@@ -1,0 +1,273 @@
+:root {
+  --bg: #f6f4ef;
+  --ink: #1d1c1a;
+  --grid: rgba(29, 28, 26, 0.14);
+  --chrome: rgba(255, 255, 255, 0.92);
+  --chrome-border: rgba(29, 28, 26, 0.1);
+  --chrome-text: #2b2a27;
+  --muted: rgba(43, 42, 39, 0.45);
+  --active: rgba(29, 28, 26, 0.09);
+  --accent: #2f6fd6;
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1b19;
+    --ink: #ecebe6;
+    --grid: rgba(236, 235, 230, 0.12);
+    --chrome: rgba(44, 43, 40, 0.92);
+    --chrome-border: rgba(236, 235, 230, 0.1);
+    --chrome-text: #ecebe6;
+    --muted: rgba(236, 235, 230, 0.4);
+    --active: rgba(236, 235, 230, 0.12);
+    --accent: #6ea1ff;
+    --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--bg);
+  color: var(--chrome-text);
+  font: 15px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app {
+  position: fixed;
+  inset: 0;
+}
+
+/* The canvas takes every gesture itself (requirement: touch-action none). */
+.canvas {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.ink-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ---------- toolbar ---------- */
+
+.toolbar,
+.menu,
+.install,
+.toast,
+.notice {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.toolbar {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  max-width: calc(100% - 24px);
+  overflow-x: auto;
+  background: var(--chrome);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--chrome-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  touch-action: manipulation;
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+}
+
+.toolbar > * + *,
+.ink-options > * + * {
+  border-left: 1px solid var(--chrome-border);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.tool,
+.swatch,
+.size,
+.zoom {
+  height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+}
+
+.tool.active,
+.size.active {
+  background: var(--active);
+}
+
+.tool:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.swatch {
+  min-width: 36px;
+}
+
+.swatch span {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--chrome-border);
+}
+
+.swatch.active span {
+  box-shadow:
+    0 0 0 2px var(--chrome),
+    0 0 0 4px var(--accent);
+}
+
+.size {
+  min-width: 36px;
+}
+
+.size span {
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.zoom {
+  min-width: 58px;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.menu-wrap {
+  position: relative;
+}
+
+.menu {
+  position: fixed;
+  top: calc(max(12px, env(safe-area-inset-top)) + 60px);
+  right: 16px;
+  min-width: 220px;
+  padding: 6px;
+  background: var(--chrome);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--chrome-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+
+.menu button {
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 9px;
+}
+
+.menu button:active {
+  background: var(--active);
+}
+
+.ink-options {
+  display: flex;
+  align-items: center;
+}
+
+.ink-options.off {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* ---------- banners ---------- */
+
+.install {
+  position: absolute;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 32px));
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--chrome);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--chrome-border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.install p {
+  margin: 0;
+  flex: 1;
+}
+
+.install button {
+  flex: none;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.toast,
+.notice {
+  position: absolute;
+  left: 50%;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--ink);
+  color: var(--bg);
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+
+.notice {
+  top: 50%;
+  bottom: auto;
+}
