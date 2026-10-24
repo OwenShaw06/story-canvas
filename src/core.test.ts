@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import { Doc } from './doc';
 import { pinchView, pointInPolygon, strokeHit, translateStroke, zoomAt } from './engine/geometry';
@@ -351,5 +352,16 @@ describe('autosave', () => {
     await vi.advanceTimersByTimeAsync(SAVE_DELAY + 10);
     expect(save).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
+  });
+});
+
+describe('deleting a world', () => {
+  it('stays deleted even if a late save arrives', async () => {
+    const { createProject, deleteProject, saveProject, listProjects, loadProject } = await import('./db');
+    const p = await createProject('Doomed');
+    await deleteProject(p.id);
+    await saveProject(p, 'data:image/jpeg;base64,AAAA'); // e.g. the thumbnail from leaving the board
+    expect(await loadProject(p.id)).toBeUndefined();
+    expect((await listProjects()).some((m) => m.id === p.id)).toBe(false);
   });
 });

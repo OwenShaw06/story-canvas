@@ -2829,3 +2829,42 @@ mark {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- confirm dialog (home) ---------- */
+
+.confirm-dialog {
+  width: min(380px, calc(100% - 32px));
+  padding: 22px 22px 18px;
+  border-radius: 22px;
+  background: var(--surface-2);
+  box-shadow:
+    0 0 0 0.5px var(--line-strong),
+    var(--shadow-lg);
+  animation: pop-in 0.25s var(--ease-out) both;
+}
+
+.confirm-dialog h2 {
+  margin: 0 0 6px;
+  font: 600 20px var(--font-serif);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog p {
+  margin: 0 0 18px;
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  font-size: 15px;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn-primary.btn-danger {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--danger) 88%, #fff), var(--danger));
+  box-shadow:
+    0 6px 16px -6px color-mix(in srgb, var(--danger) 70%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}

@@ -69,7 +69,12 @@ export function newProject(name = 'Untitled world'): Project {
 
 // ---------- projects ----------
 
+/** Worlds deleted this session. A save that was already on its way (autosave, thumbnail)
+ *  must never bring one back. */
+const deleted = new Set<string>();
+
 export async function saveProject(p: Project, thumbnail?: string): Promise<void> {
+  if (deleted.has(p.id)) return;
   const d = await db();
   const tx = d.transaction(['projects', 'projectMeta'], 'readwrite');
   const old = thumbnail ? undefined : await tx.objectStore('projectMeta').get(p.id);
@@ -127,11 +132,19 @@ export async function duplicateProject(id: string): Promise<Project | undefined>
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  const p = await loadProject(id);
+  deleted.add(id);
   const d = await db();
+  // A damaged world must still be deletable, so finding its images is best-effort.
+  let imageIds = new Set<string>();
+  try {
+    const p = await loadProject(id);
+    if (p) imageIds = imageIdsIn(p);
+  } catch (e) {
+    console.warn('Could not read world before deleting; its images stay behind', e);
+  }
   const tx = d.transaction(['projects', 'projectMeta', 'images'], 'readwrite');
   const ops: Promise<unknown>[] = [tx.objectStore('projects').delete(id), tx.objectStore('projectMeta').delete(id)];
-  if (p) for (const imageId of imageIdsIn(p)) ops.push(tx.objectStore('images').delete(imageId));
+  for (const imageId of imageIds) ops.push(tx.objectStore('images').delete(imageId));
   await Promise.all([...ops, tx.done]);
 }
 

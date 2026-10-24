@@ -20,6 +20,7 @@ export function Home({ onOpen }: { onOpen: (p: Project) => void }) {
   const [menu, setMenu] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<ProjectMeta | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const anchors = useRef(new Map<string, HTMLElement>());
 
@@ -133,11 +134,9 @@ export function Home({ onOpen }: { onOpen: (p: Project) => void }) {
               </button>
               <button
                 class="menu-item is-danger"
-                onClick={async () => {
+                onClick={() => {
                   setMenu(null);
-                  if (!window.confirm(`Delete “${m.name}”? This can’t be undone. Export a backup first if you might want it later.`)) return;
-                  await deleteProject(m.id);
-                  void refresh();
+                  setConfirming(m);
                 }}
               >
                 <TrashIcon size={18} /> Delete…
@@ -147,7 +146,53 @@ export function Home({ onOpen }: { onOpen: (p: Project) => void }) {
         ))}
       </div>
       {list && !list.length && <p class="home-empty">Start your first world. Each book or setting gets its own board.</p>}
+      {confirming && (
+        <ConfirmDelete
+          name={confirming.name}
+          onCancel={() => setConfirming(null)}
+          onConfirm={async () => {
+            const id = confirming.id;
+            setConfirming(null);
+            // Hide it straight away; the list reloads from storage once the delete lands.
+            setList((l) => l?.filter((x) => x.id !== id) ?? l);
+            try {
+              await deleteProject(id);
+            } catch (err) {
+              setError(`Could not delete: ${(err as Error).message || 'storage error'}`);
+            }
+            void refresh();
+          }}
+        />
+      )}
       <input ref={importRef} type="file" accept=".json,application/json" hidden onChange={onImport} />
+    </div>
+  );
+}
+
+/** In-app confirmation. Safari on iPad can silently block window.confirm, so we don't use it. */
+function ConfirmDelete(props: { name: string; onCancel: () => void; onConfirm: () => void }) {
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') props.onCancel();
+      if (e.key === 'Enter') props.onConfirm();
+    };
+    document.addEventListener('keydown', key);
+    return () => document.removeEventListener('keydown', key);
+  }, []);
+  return (
+    <div class="modal-scrim" onPointerDown={(e) => e.target === e.currentTarget && props.onCancel()}>
+      <div class="confirm-dialog" role="alertdialog" aria-labelledby="confirm-title">
+        <h2 id="confirm-title">Delete “{props.name}”?</h2>
+        <p>This can’t be undone. Export a backup first if you might want it later.</p>
+        <div class="confirm-actions">
+          <button class="btn-secondary" onClick={props.onCancel}>
+            Cancel
+          </button>
+          <button class="btn-primary btn-danger" onClick={props.onConfirm}>
+            <TrashIcon size={18} /> Delete
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
