@@ -3,17 +3,25 @@ import type { FieldType, Template } from './model';
 // Default templates from the requirements doc. Templates are data: each new
 // project gets its own copy, so editing them later never touches code.
 
+export function fieldKey(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '') || 'field'
+  );
+}
+
 type Spec = [label: string, type?: FieldType, options?: string[]];
 
-function make(id: string, name: string, specs: Spec[]): Template {
+function make(id: string, name: string, icon: string, color: string, specs: Spec[]): Template {
   return {
     id,
     name,
+    icon,
+    color,
     fields: specs.map(([label, type = 'text', options]) => ({
-      key: label
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_|_$/g, ''),
+      key: fieldKey(label),
       label,
       type,
       ...(options ? { options } : {}),
@@ -23,7 +31,7 @@ function make(id: string, name: string, specs: Spec[]): Template {
 
 export function defaultTemplates(): Template[] {
   return [
-    make('character', 'Character', [
+    make('character', 'Character', 'person', 'blue', [
       ['Name'],
       ['Role'],
       ['Age'],
@@ -36,7 +44,7 @@ export function defaultTemplates(): Template[] {
       ['First appearance'],
       ['Notes', 'longtext'],
     ]),
-    make('location', 'Location', [
+    make('location', 'Location', 'pin', 'green', [
       ['Name'],
       ['Type'],
       ['Region'],
@@ -46,7 +54,7 @@ export function defaultTemplates(): Template[] {
       ['Key events', 'longtext'],
       ['Notes', 'longtext'],
     ]),
-    make('faction', 'Faction', [
+    make('faction', 'Faction', 'flag', 'red', [
       ['Name'],
       ['Purpose', 'longtext'],
       ['Leader'],
@@ -57,7 +65,7 @@ export function defaultTemplates(): Template[] {
       ['Secrets', 'longtext'],
       ['Notes', 'longtext'],
     ]),
-    make('system', 'Magic or Tech System', [
+    make('system', 'Magic or Tech System', 'sparkle', 'purple', [
       ['Name'],
       ['How it works', 'longtext'],
       ['Source of power', 'longtext'],
@@ -66,7 +74,7 @@ export function defaultTemplates(): Template[] {
       ['Effect on society', 'longtext'],
       ['Rules readers must know', 'longtext'],
     ]),
-    make('plot_event', 'Plot Event', [
+    make('plot_event', 'Plot Event', 'bolt', 'orange', [
       ['Title'],
       ['Book and chapter'],
       ['What happens', 'longtext'],
@@ -75,14 +83,14 @@ export function defaultTemplates(): Template[] {
       ['Consequence', 'longtext'],
       ['Status', 'select', ['idea', 'drafted', 'written']],
     ]),
-    make('item', 'Item', [
+    make('item', 'Item', 'gem', 'teal', [
       ['Name'],
       ['Description', 'longtext'],
       ['Origin', 'longtext'],
       ['Current holder'],
       ['Significance', 'longtext'],
     ]),
-    make('note', 'Note', [['Note', 'longtext']]),
-    make('sketch', 'Sketch', []),
+    make('note', 'Note', 'note', 'yellow', [['Note', 'longtext']]),
+    make('sketch', 'Sketch', 'pencil', 'gray', []),
   ];
 }

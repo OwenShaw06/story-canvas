@@ -9,11 +9,23 @@ export const toWorld = (v: View, sx: number, sy: number): [number, number] => [
   (sy - v.y) / v.zoom,
 ];
 
+export const toScreen = (v: View, wx: number, wy: number): [number, number] => [wx * v.zoom + v.x, wy * v.zoom + v.y];
+
 /** Zoom to `zoom` while keeping the world point under screen (sx, sy) fixed. */
 export function zoomAt(v: View, zoom: number, sx: number, sy: number): View {
   const z = clampZoom(zoom);
   const [wx, wy] = toWorld(v, sx, sy);
   return { x: sx - wx * z, y: sy - wy * z, zoom: z };
+}
+
+/** The view that fits `box` into a screen of size w×h with padding. */
+export function fitView(box: Box, w: number, h: number, pad = 80, maxZoom = 1): View {
+  const bw = Math.max(1, box.maxX - box.minX);
+  const bh = Math.max(1, box.maxY - box.minY);
+  const z = clampZoom(Math.min((w - pad * 2) / bw, (h - pad * 2) / bh, maxZoom));
+  const cx = (box.minX + box.maxX) / 2;
+  const cy = (box.minY + box.maxY) / 2;
+  return { x: w / 2 - cx * z, y: h / 2 - cy * z, zoom: z };
 }
 
 /**
@@ -57,6 +69,21 @@ export function strokeBox(s: Stroke): Box {
 export const boxesOverlap = (a: Box, b: Box) =>
   a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
 
+export const boxContains = (outer: Box, inner: Box) =>
+  inner.minX >= outer.minX && inner.maxX <= outer.maxX && inner.minY >= outer.minY && inner.maxY <= outer.maxY;
+
+export const pointInBox = (b: Box, x: number, y: number) => x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
+
+export function unionBoxes(boxes: Box[]): Box | null {
+  if (!boxes.length) return null;
+  return boxes.reduce((a, b) => ({
+    minX: Math.min(a.minX, b.minX),
+    minY: Math.min(a.minY, b.minY),
+    maxX: Math.max(a.maxX, b.maxX),
+    maxY: Math.max(a.maxY, b.maxY),
+  }));
+}
+
 function distToSegmentSq(px: number, py: number, a: Point, b: Point): number {
   const dx = b[0] - a[0],
     dy = b[1] - a[1];
@@ -90,16 +117,28 @@ export function strokeHit(s: Stroke, x: number, y: number, r: number): boolean {
  * Points along the segment from a to b, spaced at most `step` apart, so a
  * fast eraser swipe cannot skip over a thin stroke.
  */
-export function sampleSegment(
-  a: [number, number],
-  b: [number, number],
-  step: number,
-): [number, number][] {
+export function sampleSegment(a: [number, number], b: [number, number], step: number): [number, number][] {
   const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
   const n = Math.max(1, Math.ceil(d / step));
   const out: [number, number][] = [];
   for (let i = 1; i <= n; i++) out.push([a[0] + ((b[0] - a[0]) * i) / n, a[1] + ((b[1] - a[1]) * i) / n]);
   return out;
+}
+
+/** Even-odd point-in-polygon test. */
+export function pointInPolygon(x: number, y: number, poly: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Translates a stroke, keeping its id (used when moving selected ink). */
+export function translateStroke(s: Stroke, dx: number, dy: number): Stroke {
+  return { ...s, points: s.points.map(([x, y, p]) => [round(x + dx, 2), round(y + dy, 2), p] as Point) };
 }
 
 export const round = (v: number, places: number) => {

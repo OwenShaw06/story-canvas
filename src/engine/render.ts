@@ -72,3 +72,29 @@ export function fillStroke(ctx: CanvasRenderingContext2D, s: Stroke, autoInk: st
   ctx.fill(path);
   ctx.globalAlpha = 1;
 }
+
+const svgCache = new WeakMap<Stroke, string>();
+
+/** SVG path data for a stroke's outline (used for ink on cards and stickies). */
+export function strokeSvgPath(s: Stroke): string {
+  let d = svgCache.get(s);
+  if (d !== undefined) return d;
+  const pts = getStroke(s.points, strokeOptions(s.tool, s.size, true));
+  const n = pts.length;
+  if (n < 3) {
+    d = n ? `M${pts[0][0]},${pts[0][1]}m-1,0a1,1 0 1,0 2,0a1,1 0 1,0 -2,0` : '';
+  } else {
+    const f = (v: number) => v.toFixed(2);
+    const mid = (a: number[], b: number[]) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const start = mid(pts[n - 1], pts[0]);
+    const parts = [`M${f(start[0])},${f(start[1])}`];
+    for (let i = 0; i < n; i++) {
+      const p = pts[i];
+      const m = mid(p, pts[(i + 1) % n]);
+      parts.push(`Q${f(p[0])},${f(p[1])} ${f(m[0])},${f(m[1])}`);
+    }
+    d = parts.join('') + 'Z';
+  }
+  svgCache.set(s, d);
+  return d;
+}

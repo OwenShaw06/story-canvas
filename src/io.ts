@@ -1,42 +1,43 @@
-import { SCHEMA_VERSION, uid, type Project } from './model';
-import { defaultTemplates } from './templates';
+import { SCHEMA_VERSION, type Project } from './model';
+import { normalizeProject } from './migrate';
 
 // JSON export/import (requirement D2). Exports carry a schemaVersion so later
-// versions of the app can migrate older files.
+// versions can migrate older files, and embed images so a backup is complete.
 
 export type ExportFile = {
   app: 'story-canvas';
   schemaVersion: number;
   exportedAt: number;
   project: Project;
+  /** Image id → data URL. */
+  images?: Record<string, string>;
 };
 
-export function exportProject(p: Project): string {
+export function exportProject(p: Project, images: Record<string, string> = {}): string {
   const file: ExportFile = {
     app: 'story-canvas',
     schemaVersion: SCHEMA_VERSION,
     exportedAt: Date.now(),
     project: p,
+    ...(Object.keys(images).length ? { images } : {}),
   };
   return JSON.stringify(file);
 }
 
-export function exportFilename(p: Project): string {
-  const safe = p.name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'project';
-  const date = new Date().toISOString().slice(0, 10);
-  return `${safe}-${date}.storycanvas.json`;
+export function safeName(name: string): string {
+  return name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') || 'project';
 }
 
-/** Migrations keyed by the version they upgrade *from*. */
-const migrations: Record<number, (raw: any) => any> = {
-  // 1: (raw) => ({ ...raw, newField: default }),
-};
+export function exportFilename(p: Project, ext = 'storycanvas.json'): string {
+  const date = new Date().toISOString().slice(0, 10);
+  return `${safeName(p.name)}-${date}.${ext}`;
+}
 
 /**
  * Parses an export file. The imported project gets a new id so it never
  * overwrites an existing project; its content is otherwise unchanged.
  */
-export function importProject(json: string): Project {
+export function importProject(json: string): { project: Project; images: Record<string, string> } {
   let file: any;
   try {
     file = JSON.parse(json);
@@ -49,32 +50,22 @@ export function importProject(json: string): Project {
   if (file.schemaVersion > SCHEMA_VERSION) {
     throw new Error('This file was made by a newer version of Story Canvas. Update the app first.');
   }
-  let raw = file.project;
-  for (let v = file.schemaVersion; v < SCHEMA_VERSION; v++) {
-    const m = migrations[v];
-    if (m) raw = m(raw);
+  const images: Record<string, string> = {};
+  if (file.images && typeof file.images === 'object') {
+    for (const [k, v] of Object.entries(file.images)) if (typeof v === 'string' && v.startsWith('data:image/')) images[k] = v;
   }
-  return validate(raw);
+  return { project: normalizeProject(file.project, { newId: true }), images };
 }
 
-function validate(raw: any): Project {
-  const arr = (v: unknown) => (Array.isArray(v) ? v : []);
-  if (typeof raw !== 'object' || raw === null) throw new Error('The project in this file is empty.');
-  const now = Date.now();
-  return {
-    id: uid(),
-    name: typeof raw.name === 'string' && raw.name ? raw.name : 'Imported world',
-    createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : now,
-    updatedAt: now,
-    view:
-      raw.view && typeof raw.view.zoom === 'number'
-        ? { x: +raw.view.x || 0, y: +raw.view.y || 0, zoom: raw.view.zoom }
-        : { x: 0, y: 0, zoom: 1 },
-    cards: arr(raw.cards),
-    links: arr(raw.links),
-    strokes: arr(raw.strokes).filter(
-      (s: any) => s && typeof s.id === 'string' && Array.isArray(s.points),
-    ),
-    templates: arr(raw.templates).length ? raw.templates : defaultTemplates(),
-  };
+export function blobToDataUrl(b: Blob): Promise<string> {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result as string);
+    r.onerror = () => rej(r.error);
+    r.readAsDataURL(b);
+  });
+}
+
+export async function dataUrlToBlob(url: string): Promise<Blob> {
+  return (await fetch(url)).blob();
 }

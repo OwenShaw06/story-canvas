@@ -1,72 +1,28 @@
-import { INK_AUTO, uid, type Point, type Project, type Stroke, type View } from '../model';
-import {
-  boxesOverlap,
-  clampZoom,
-  pinchView,
-  round,
-  sampleSegment,
-  strokeBox,
-  strokeHit,
-  toWorld,
-  zoomAt,
-  type Box,
-} from './geometry';
-import { History, removeStrokes, type RemovedItem } from './history';
-import { buildPath, fillStroke, HIGHLIGHTER_ALPHA, resolveColor } from './render';
+import type { Doc } from '../doc';
+import type { Background, Point, Stroke, View } from '../model';
+import { boxesOverlap, clampZoom, fitView, strokeBox, toWorld, zoomAt, type Box } from './geometry';
+import { buildPath, fillStroke, HIGHLIGHTER_ALPHA, resolveColor, strokePath } from './render';
 
-export type Tool = 'pen' | 'highlighter' | 'eraser';
-
-export type EngineState = { canUndo: boolean; canRedo: boolean; zoom: number };
-
-type Options = {
-  /** Called when undo/redo availability or zoom changes. */
-  onState: (s: EngineState) => void;
-  /** Called after any change that must be saved (ink or view). */
-  onChange: () => void;
-};
-
-/** Touches that start this soon after the pen lifts are treated as a palm. */
-const PALM_GRACE_MS = 500;
-/** Touch contacts wider than this (CSS px) are treated as a palm. */
-const PALM_SIZE_PX = 60;
-/** Eraser radius in screen pixels. */
-const ERASER_RADIUS_PX = 10;
-
-type ActiveStroke = {
-  pointerId: number;
+/** A stroke being drawn. `clip` limits it to a card or sticky (world coords). */
+export type LiveStroke = {
   tool: 'pen' | 'highlighter';
   color: string;
   size: number;
   points: Point[];
   predicted: Point[];
+  clip?: Box;
 };
 
-type ActiveErase = {
-  pointerId: number;
-  last: [number, number];
-  /** Strokes removed so far in this swipe, in removal order (one undo step). */
-  removed: RemovedItem[];
-  cursor: [number, number];
-};
-
-type Pinch = {
-  startView: View;
-  startMid: [number, number];
-  startDist: number;
-};
+export type Guide = { x1: number; y1: number; x2: number; y2: number };
 
 /**
- * The ink canvas. Rendering and input are imperative (no framework) so a
- * stroke never waits on a UI re-render.
+ * View and rendering for the board. Input lives in Controller.
  *
- * Layers: `base` holds committed strokes and the dot grid; `live` holds the
- * stroke being drawn and the eraser cursor, and is cleared every frame.
- *
- * Input rules (requirement C2 and the palm acceptance criterion):
- * - pen (and mouse, for desktop testing) draws or erases;
- * - exactly two touches pan and pinch-zoom; one touch does nothing;
- * - three or more touches, wide contacts, touches while the pen is down, and
- *   touches right after the pen lifts are all ignored as a palm.
+ * Layers, bottom to top: `below` (frames, links, nodes as HTML), `base`
+ * canvas (committed ink, grid), `live` canvas (stroke in progress, lasso,
+ * guides, selected ink), `above` (selection handles as HTML). The two HTML
+ * layers get the view as a CSS transform in the same frame the canvases
+ * redraw, so everything moves together.
  */
 export class CanvasEngine {
   private base: HTMLCanvasElement;
@@ -74,132 +30,216 @@ export class CanvasEngine {
   private bctx: CanvasRenderingContext2D;
   private lctx: CanvasRenderingContext2D;
   private dpr = 1;
-  private width = 0;
-  private height = 0;
+  width = 0;
+  height = 0;
 
-  private project: Project;
-  private history: History;
-
-  tool: Tool = 'pen';
-  color: string = INK_AUTO;
-  /** Screen-pixel width for the current tool; stored strokes use world units. */
-  size = 3;
-
-  private stroke: ActiveStroke | null = null;
-  private erase: ActiveErase | null = null;
-  private touches = new Map<number, [number, number]>();
-  private ignoredTouches = new Set<number>();
-  private touchesBlocked = false; // set by 3+ touches until all lift
-  private pinch: Pinch | null = null;
-  private lastPenUp = 0;
-  private mousePan: { pointerId: number; last: [number, number] } | null = null;
-  private spaceDown = false;
+  // Live-layer state, set by Controller.
+  liveStroke: LiveStroke | null = null;
+  eraserCursor: [number, number] | null = null; // screen px
+  eraserRadius = 10;
+  lasso: [number, number][] | null = null; // world
+  marquee: Box | null = null; // world
+  guides: Guide[] = [];
+  selectedStrokes = new Set<string>();
+  /** Offset applied to selected strokes while they are dragged (hidden from base). */
+  strokeDrag: { dx: number; dy: number } | null = null;
 
   private needsBase = true;
   private needsLive = false;
   private raf = 0;
+  private anim = 0;
   private autoInk = '#1d1c1a';
   private gridColor = 'rgba(0,0,0,0.12)';
-  private lastState: EngineState | null = null;
-
-  private cleanup: (() => void)[] = [];
+  private accent = '#2f6fd6';
+  private lastStrokes: Stroke[] = [];
+  private lastBackground: Background | null = null;
   private resizeObserver: ResizeObserver;
+  private unsub: () => void;
+  private mq = window.matchMedia('(prefers-color-scheme: dark)');
+  private onTheme = () =>
+    requestAnimationFrame(() => {
+      this.readTheme();
+      this.requestBase();
+    });
+
+  onViewChange: (v: View) => void = () => {};
 
   constructor(
     private container: HTMLElement,
-    project: Project,
-    private opts: Options,
+    private layers: HTMLElement[],
+    inkHost: HTMLElement,
+    private doc: Doc,
   ) {
-    this.project = project;
-    this.history = new History(() => this.project.strokes);
-
     this.base = document.createElement('canvas');
     this.live = document.createElement('canvas');
     for (const c of [this.base, this.live]) {
       c.className = 'ink-layer';
-      container.appendChild(c);
+      inkHost.appendChild(c);
     }
     this.bctx = this.base.getContext('2d')!;
     this.lctx = this.live.getContext('2d', { desynchronized: true } as CanvasRenderingContext2DSettings)!;
+    this.lastStrokes = doc.p.strokes;
 
     this.readTheme();
+    this.mq.addEventListener('change', this.onTheme);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
+    this.unsub = doc.subscribe((changed) => {
+      if (changed.has('strokes')) this.onStrokesChanged();
+      if (changed.has('meta') && doc.p.background !== this.lastBackground) this.requestBase();
+    });
     this.resize();
-    this.bindInput();
-    this.emitState();
-  }
-
-  // ---------- public API ----------
-
-  get view(): View {
-    return this.project.view;
-  }
-
-  setProject(p: Project) {
-    this.cancelInput();
-    this.project = p;
-    this.history.clear();
-    this.requestBase();
-    this.emitState();
-  }
-
-  undo() {
-    if (this.stroke || this.erase) return;
-    if (this.history.undo()) this.afterInkEdit();
-  }
-
-  redo() {
-    if (this.stroke || this.erase) return;
-    if (this.history.redo()) this.afterInkEdit();
-  }
-
-  /** Zoom around the centre of the screen. */
-  zoomTo(zoom: number) {
-    this.setView(zoomAt(this.view, zoom, this.width / 2, this.height / 2));
   }
 
   destroy() {
     cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.anim);
     this.resizeObserver.disconnect();
-    this.cleanup.forEach((f) => f());
+    this.mq.removeEventListener('change', this.onTheme);
+    this.unsub();
     this.base.remove();
     this.live.remove();
   }
 
-  // ---------- state ----------
+  // ---------- view ----------
 
-  private setView(v: View) {
-    this.project.view = { x: v.x, y: v.y, zoom: clampZoom(v.zoom) };
-    this.requestBase();
-    this.opts.onChange();
-    this.emitState();
+  get view(): View {
+    return this.doc.p.view;
   }
 
-  private afterInkEdit() {
+  setView(v: View) {
+    const next = { x: v.x, y: v.y, zoom: clampZoom(v.zoom) };
+    const cur = this.view;
+    if (cur.x === next.x && cur.y === next.y && cur.zoom === next.zoom) return;
+    this.doc.setMeta({ view: next });
+    this.applyLayerTransform();
     this.requestBase();
-    this.opts.onChange();
-    this.emitState();
+    if (this.liveStroke || this.lasso || this.selectedStrokes.size || this.guides.length) this.requestLive();
+    this.onViewChange(next);
   }
 
-  private emitState() {
-    const s: EngineState = {
-      canUndo: this.history.canUndo,
-      canRedo: this.history.canRedo,
-      zoom: this.view.zoom,
+  stopAnimation() {
+    cancelAnimationFrame(this.anim);
+    this.anim = 0;
+  }
+
+  /** Smoothly moves to a view: pans along a straight line in world space, zooms in log space. */
+  animateTo(target: View, ms = 480) {
+    this.stopAnimation();
+    const from = this.view;
+    const w = this.width,
+      h = this.height;
+    const c0 = toWorld(from, w / 2, h / 2);
+    const c1 = toWorld(target, w / 2, h / 2);
+    const z0 = Math.log(from.zoom),
+      z1 = Math.log(clampZoom(target.zoom));
+    const t0 = performance.now();
+    const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+    const step = () => {
+      const t = Math.min(1, (performance.now() - t0) / ms);
+      const e = ease(t);
+      const z = Math.exp(z0 + (z1 - z0) * e);
+      const cx = c0[0] + (c1[0] - c0[0]) * e;
+      const cy = c0[1] + (c1[1] - c0[1]) * e;
+      this.setView({ x: w / 2 - cx * z, y: h / 2 - cy * z, zoom: z });
+      this.anim = t < 1 ? requestAnimationFrame(step) : 0;
     };
-    const l = this.lastState;
-    if (l && l.canUndo === s.canUndo && l.canRedo === s.canRedo && l.zoom === s.zoom) return;
-    this.lastState = s;
-    this.opts.onState(s);
+    this.anim = requestAnimationFrame(step);
+  }
+
+  /** Continues a finger pan with momentum after release. Velocity in px/ms. */
+  fling(vx: number, vy: number) {
+    this.stopAnimation();
+    let last = performance.now();
+    const step = () => {
+      const now = performance.now();
+      const dt = Math.min(32, now - last);
+      last = now;
+      const decay = Math.pow(0.994, dt);
+      vx *= decay;
+      vy *= decay;
+      if (Math.hypot(vx, vy) < 0.02) {
+        this.anim = 0;
+        return;
+      }
+      const v = this.view;
+      this.setView({ ...v, x: v.x + vx * dt, y: v.y + vy * dt });
+      this.anim = requestAnimationFrame(step);
+    };
+    this.anim = requestAnimationFrame(step);
+  }
+
+  zoomBy(factor: number, animate = true) {
+    const v = zoomAt(this.view, this.view.zoom * factor, this.width / 2, this.height / 2);
+    if (animate) this.animateTo(v, 260);
+    else this.setView(v);
+  }
+
+  zoomTo(zoom: number) {
+    this.animateTo(zoomAt(this.view, zoom, this.width / 2, this.height / 2), 320);
+  }
+
+  fit(box: Box | null, maxZoom = 1) {
+    if (!box) return this.animateTo({ x: 0, y: 0, zoom: 1 });
+    this.animateTo(fitView(box, this.width, this.height, 96, maxZoom));
+  }
+
+  worldViewport(): Box {
+    const [minX, minY] = toWorld(this.view, 0, 0);
+    const [maxX, maxY] = toWorld(this.view, this.width, this.height);
+    return { minX, minY, maxX, maxY };
+  }
+
+  clientToWorld(clientX: number, clientY: number): [number, number] {
+    const r = this.container.getBoundingClientRect();
+    return toWorld(this.view, clientX - r.left, clientY - r.top);
+  }
+
+  clientToLocal(clientX: number, clientY: number): [number, number] {
+    const r = this.container.getBoundingClientRect();
+    return [clientX - r.left, clientY - r.top];
   }
 
   // ---------- rendering ----------
+
+  requestBase() {
+    this.needsBase = true;
+    this.schedule();
+  }
+
+  requestLive() {
+    this.needsLive = true;
+    this.schedule();
+  }
+
+  private schedule() {
+    if (!this.raf) this.raf = requestAnimationFrame(() => this.renderNow());
+  }
+
+  private onStrokesChanged() {
+    const prev = this.lastStrokes;
+    const next = this.doc.p.strokes;
+    this.lastStrokes = next;
+    // Fast path: one stroke appended. Draw just that stroke on top.
+    if (
+      !this.needsBase &&
+      !this.strokeDrag &&
+      next.length === prev.length + 1 &&
+      (prev.length === 0 || next[next.length - 2] === prev[prev.length - 1])
+    ) {
+      this.applyWorldTransform(this.bctx);
+      fillStroke(this.bctx, next[next.length - 1], this.autoInk);
+      return;
+    }
+    this.requestBase();
+    if (this.selectedStrokes.size) this.requestLive();
+  }
 
   private readTheme() {
     const cs = getComputedStyle(this.container);
     this.autoInk = cs.getPropertyValue('--ink').trim() || '#1d1c1a';
     this.gridColor = cs.getPropertyValue('--grid').trim() || 'rgba(0,0,0,0.12)';
+    this.accent = cs.getPropertyValue('--accent').trim() || '#2f6fd6';
   }
 
   private resize() {
@@ -213,37 +253,28 @@ export class CanvasEngine {
       c.style.width = `${r.width}px`;
       c.style.height = `${r.height}px`;
     }
+    this.applyLayerTransform();
     this.needsBase = true;
     this.needsLive = true;
     this.renderNow();
   }
 
-  private requestBase() {
-    this.needsBase = true;
-    this.schedule();
+  private applyLayerTransform() {
+    const { x, y, zoom } = this.view;
+    for (const l of this.layers) {
+      l.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${zoom})`;
+    }
+    this.container.style.setProperty('--iz', String(1 / zoom));
+    const level = zoom < 0.35 ? 'far' : zoom < 0.6 ? 'mid' : 'near';
+    if (this.container.dataset.zoomLevel !== level) this.container.dataset.zoomLevel = level;
   }
 
-  private requestLive() {
-    this.needsLive = true;
-    this.schedule();
-  }
-
-  private schedule() {
-    if (!this.raf) this.raf = requestAnimationFrame(() => this.renderNow());
-  }
-
-  private renderNow() {
+  renderNow() {
+    cancelAnimationFrame(this.raf);
     this.raf = 0;
     if (this.needsBase) this.renderBase();
     if (this.needsLive) this.renderLive();
     this.needsBase = this.needsLive = false;
-  }
-
-  private worldViewport(): Box {
-    const v = this.view;
-    const [minX, minY] = toWorld(v, 0, 0);
-    const [maxX, maxY] = toWorld(v, this.width, this.height);
-    return { minX, minY, maxX, maxY };
   }
 
   private applyWorldTransform(ctx: CanvasRenderingContext2D) {
@@ -254,14 +285,17 @@ export class CanvasEngine {
 
   private renderBase() {
     const ctx = this.bctx;
+    this.lastBackground = this.doc.p.background;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.base.width, this.base.height);
-    this.drawGrid(ctx);
+    this.drawBackground(ctx, this.doc.p.background);
 
     this.applyWorldTransform(ctx);
     const vp = this.worldViewport();
-    const minSize = 0.5 / this.view.zoom; // skip strokes smaller than half a pixel on screen
-    for (const s of this.project.strokes) {
+    const minSize = 0.5 / this.view.zoom;
+    const hide = this.strokeDrag ? this.selectedStrokes : null;
+    for (const s of this.doc.p.strokes) {
+      if (hide?.has(s.id)) continue;
       const b = strokeBox(s);
       if (!boxesOverlap(b, vp)) continue;
       if (b.maxX - b.minX < minSize && b.maxY - b.minY < minSize) continue;
@@ -269,20 +303,24 @@ export class CanvasEngine {
     }
   }
 
-  private drawGrid(ctx: CanvasRenderingContext2D) {
+  private drawBackground(ctx: CanvasRenderingContext2D, bg: Background) {
+    if (bg === 'plain') return;
     const { x, y, zoom } = this.view;
-    let step = 32 * zoom;
-    while (step < 16) step *= 4;
+    let step = (bg === 'lines' ? 40 : 32) * zoom;
+    while (step < 18) step *= 4;
     const d = this.dpr;
-    const r = Math.max(1, 1.2 * d);
     const ox = ((x % step) + step) % step;
     const oy = ((y % step) + step) % step;
     ctx.fillStyle = this.gridColor;
     ctx.beginPath();
-    for (let gx = ox; gx < this.width; gx += step) {
-      for (let gy = oy; gy < this.height; gy += step) {
-        ctx.rect(gx * d - r / 2, gy * d - r / 2, r, r);
-      }
+    if (bg === 'dots') {
+      const r = Math.max(1, 1.3 * d);
+      for (let gx = ox; gx < this.width; gx += step)
+        for (let gy = oy; gy < this.height; gy += step) ctx.rect(gx * d - r / 2, gy * d - r / 2, r, r);
+    } else {
+      const lw = Math.max(1, 0.6 * d);
+      for (let gy = oy; gy < this.height; gy += step) ctx.rect(0, gy * d, this.base.width, lw);
+      if (bg === 'grid') for (let gx = ox; gx < this.width; gx += step) ctx.rect(gx * d, 0, lw, this.base.height);
     }
     ctx.fill();
   }
@@ -291,332 +329,99 @@ export class CanvasEngine {
     const ctx = this.lctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, this.live.width, this.live.height);
+    const z = this.view.zoom;
 
-    if (this.stroke) {
-      const s = this.stroke;
+    // Selected ink: halo, plus the strokes themselves while dragged.
+    if (this.selectedStrokes.size) {
+      this.applyWorldTransform(ctx);
+      const off = this.strokeDrag;
+      if (off) ctx.translate(off.dx, off.dy);
+      ctx.strokeStyle = this.accent;
+      ctx.lineJoin = 'round';
+      for (const s of this.doc.p.strokes) {
+        if (!this.selectedStrokes.has(s.id)) continue;
+        const p = strokePath(s);
+        ctx.globalAlpha = 0.35;
+        ctx.lineWidth = 6 / z;
+        ctx.stroke(p);
+        ctx.globalAlpha = 1;
+        if (off) fillStroke(ctx, s, this.autoInk, p);
+      }
+    }
+
+    if (this.liveStroke) {
+      const s = this.liveStroke;
       const pts = s.predicted.length ? s.points.concat(s.predicted) : s.points;
       this.applyWorldTransform(ctx);
+      ctx.save();
+      if (s.clip) {
+        ctx.beginPath();
+        ctx.rect(s.clip.minX, s.clip.minY, s.clip.maxX - s.clip.minX, s.clip.maxY - s.clip.minY);
+        ctx.clip();
+      }
       ctx.fillStyle = resolveColor(s.color, this.autoInk);
       ctx.globalAlpha = s.tool === 'highlighter' ? HIGHLIGHTER_ALPHA : 1;
       ctx.fill(buildPath(s.tool, s.size, pts, false));
+      ctx.restore();
       ctx.globalAlpha = 1;
     }
 
-    if (this.erase) {
-      const [cx, cy] = this.erase.cursor;
+    if (this.lasso && this.lasso.length > 1) {
+      this.applyWorldTransform(ctx);
+      ctx.beginPath();
+      ctx.moveTo(this.lasso[0][0], this.lasso[0][1]);
+      for (const [x, y] of this.lasso) ctx.lineTo(x, y);
+      ctx.closePath();
+      ctx.fillStyle = this.accent;
+      ctx.globalAlpha = 0.08;
+      ctx.fill();
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = this.accent;
+      ctx.lineWidth = 1.5 / z;
+      ctx.setLineDash([6 / z, 5 / z]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+
+    if (this.marquee) {
+      const m = this.marquee;
+      this.applyWorldTransform(ctx);
+      ctx.fillStyle = this.accent;
+      ctx.globalAlpha = 0.08;
+      ctx.fillRect(m.minX, m.minY, m.maxX - m.minX, m.maxY - m.minY);
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = this.accent;
+      ctx.lineWidth = 1 / z;
+      ctx.strokeRect(m.minX, m.minY, m.maxX - m.minX, m.maxY - m.minY);
+      ctx.globalAlpha = 1;
+    }
+
+    if (this.guides.length) {
+      this.applyWorldTransform(ctx);
+      ctx.strokeStyle = '#ff3b6b';
+      ctx.lineWidth = 1 / z;
+      ctx.beginPath();
+      for (const g of this.guides) {
+        ctx.moveTo(g.x1, g.y1);
+        ctx.lineTo(g.x2, g.y2);
+      }
+      ctx.stroke();
+    }
+
+    if (this.eraserCursor) {
+      const [cx, cy] = this.eraserCursor;
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.beginPath();
-      ctx.arc(cx, cy, ERASER_RADIUS_PX, 0, Math.PI * 2);
-      ctx.strokeStyle = this.autoInk;
+      ctx.arc(cx, cy, this.eraserRadius, 0, Math.PI * 2);
+      ctx.fillStyle = this.autoInk;
+      ctx.globalAlpha = 0.06;
+      ctx.fill();
       ctx.globalAlpha = 0.5;
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = this.autoInk;
+      ctx.lineWidth = 1.25;
       ctx.stroke();
       ctx.globalAlpha = 1;
-    }
-  }
-
-  // ---------- input ----------
-
-  private bindInput() {
-    const el = this.container;
-    const on = <K extends keyof HTMLElementEventMap>(
-      target: HTMLElement | Window | MediaQueryList,
-      type: K | string,
-      fn: (e: any) => void,
-      opts?: AddEventListenerOptions,
-    ) => {
-      target.addEventListener(type, fn, opts);
-      this.cleanup.push(() => target.removeEventListener(type, fn, opts));
-    };
-
-    on(el, 'pointerdown', (e: PointerEvent) => this.onDown(e));
-    on(el, 'pointermove', (e: PointerEvent) => this.onMove(e));
-    on(el, 'pointerup', (e: PointerEvent) => this.onUp(e, false));
-    on(el, 'pointercancel', (e: PointerEvent) => this.onUp(e, true));
-    on(el, 'lostpointercapture', (e: PointerEvent) => this.onUp(e, true));
-
-    // Stop iOS Safari from showing the magnifier, selecting text, or zooming the page.
-    const block = (e: Event) => e.preventDefault();
-    on(el, 'touchstart', block, { passive: false });
-    on(el, 'touchmove', block, { passive: false });
-    on(el, 'gesturestart', block, { passive: false });
-    on(el, 'contextmenu', block);
-
-    on(el, 'wheel', (e: WheelEvent) => this.onWheel(e), { passive: false });
-    on(window, 'keydown', (e: KeyboardEvent) => this.onKey(e, true));
-    on(window, 'keyup', (e: KeyboardEvent) => this.onKey(e, false));
-
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    on(mq, 'change', () => {
-      // CSS variables update after the media query flips; read them next frame.
-      requestAnimationFrame(() => {
-        this.readTheme();
-        this.requestBase();
-      });
-    });
-  }
-
-  private capture(pointerId: number) {
-    try {
-      this.container.setPointerCapture(pointerId);
-    } catch {
-      // The pointer may already be gone (fast taps); input still works without capture.
-    }
-  }
-
-  private local(e: PointerEvent): [number, number] {
-    const r = this.container.getBoundingClientRect();
-    return [e.clientX - r.left, e.clientY - r.top];
-  }
-
-  private onDown(e: PointerEvent) {
-    if (e.pointerType === 'touch') return this.touchDown(e);
-
-    if (e.pointerType === 'mouse' && (e.button === 1 || (e.button === 0 && this.spaceDown))) {
-      this.mousePan = { pointerId: e.pointerId, last: [e.clientX, e.clientY] };
-      this.capture(e.pointerId);
-      return;
-    }
-    if (e.button !== 0) return;
-    if (this.stroke || this.erase) return; // one pen at a time
-
-    // A pen landing ends any touch gesture; the touches already down are likely a palm.
-    this.pinch = null;
-    for (const id of this.touches.keys()) this.ignoredTouches.add(id);
-    this.touches.clear();
-
-    this.capture(e.pointerId);
-    const [sx, sy] = this.local(e);
-    const [wx, wy] = toWorld(this.view, sx, sy);
-
-    if (this.tool === 'eraser') {
-      this.erase = { pointerId: e.pointerId, last: [wx, wy], removed: [], cursor: [sx, sy] };
-      this.eraseAt([[wx, wy]]);
-      this.requestLive();
-      return;
-    }
-    this.stroke = {
-      pointerId: e.pointerId,
-      tool: this.tool,
-      color: this.color,
-      size: round(this.size / this.view.zoom, 3),
-      points: [this.toPoint(e, sx, sy)],
-      predicted: [],
-    };
-    this.requestLive();
-  }
-
-  private onMove(e: PointerEvent) {
-    if (e.pointerType === 'touch') return this.touchMove(e);
-
-    if (this.mousePan?.pointerId === e.pointerId) {
-      const dx = e.clientX - this.mousePan.last[0];
-      const dy = e.clientY - this.mousePan.last[1];
-      this.mousePan.last = [e.clientX, e.clientY];
-      this.setView({ ...this.view, x: this.view.x + dx, y: this.view.y + dy });
-      return;
-    }
-
-    const events = (e.getCoalescedEvents?.() ?? []).length ? e.getCoalescedEvents() : [e];
-
-    if (this.stroke?.pointerId === e.pointerId) {
-      const s = this.stroke;
-      const minDist = 0.5 / this.view.zoom;
-      for (const ce of events) {
-        const [sx, sy] = this.local(ce);
-        const p = this.toPoint(ce, sx, sy);
-        const last = s.points[s.points.length - 1];
-        if (Math.hypot(p[0] - last[0], p[1] - last[1]) < minDist) continue;
-        s.points.push(p);
-      }
-      s.predicted = (e.getPredictedEvents?.() ?? []).map((pe) => {
-        const [sx, sy] = this.local(pe);
-        return this.toPoint(pe, sx, sy);
-      });
-      this.requestLive();
-      return;
-    }
-
-    if (this.erase?.pointerId === e.pointerId) {
-      const er = this.erase;
-      const pts: [number, number][] = [];
-      for (const ce of events) {
-        const [sx, sy] = this.local(ce);
-        const w = toWorld(this.view, sx, sy);
-        pts.push(...sampleSegment(er.last, w, ERASER_RADIUS_PX / this.view.zoom));
-        er.last = w;
-        er.cursor = [sx, sy];
-      }
-      this.eraseAt(pts);
-      this.requestLive();
-    }
-  }
-
-  private onUp(e: PointerEvent, cancelled: boolean) {
-    if (e.pointerType === 'touch') return this.touchUp(e);
-
-    if (this.mousePan?.pointerId === e.pointerId) {
-      this.mousePan = null;
-      return;
-    }
-
-    if (this.stroke?.pointerId === e.pointerId) {
-      const s = this.stroke;
-      this.stroke = null;
-      this.lastPenUp = performance.now();
-      if (!cancelled) {
-        const [sx, sy] = this.local(e);
-        const p = this.toPoint(e, sx, sy);
-        const last = s.points[s.points.length - 1];
-        if (p[0] !== last[0] || p[1] !== last[1]) s.points.push(p);
-      }
-      // A cancelled stroke (e.g. iOS interrupting the touch) is still kept: losing ink is worse.
-      this.commitStroke(s);
-      this.requestLive();
-      return;
-    }
-
-    if (this.erase?.pointerId === e.pointerId) {
-      const er = this.erase;
-      this.erase = null;
-      this.lastPenUp = performance.now();
-      if (er.removed.length) {
-        // The strokes were removed live; record one undo step for the whole swipe.
-        this.history.push({ kind: 'remove', items: er.removed });
-        this.opts.onChange();
-        this.emitState();
-      }
-      this.requestLive();
-    }
-  }
-
-  private toPoint(e: PointerEvent, sx: number, sy: number): Point {
-    const [wx, wy] = toWorld(this.view, sx, sy);
-    // Mouse and some styluses report 0 or 0.5; give them a steady medium pressure.
-    const pressure = e.pointerType === 'pen' ? Math.max(0.05, e.pressure || 0.5) : 0.5;
-    return [round(wx, 2), round(wy, 2), round(pressure, 3)];
-  }
-
-  private commitStroke(a: ActiveStroke) {
-    if (!a.points.length) return;
-    const stroke: Stroke = { id: uid(), tool: a.tool, color: a.color, size: a.size, points: a.points };
-    this.project.strokes.push(stroke);
-    this.history.push({ kind: 'add', strokes: [stroke] });
-    // Draw just the new stroke on top of the base layer instead of redrawing everything.
-    if (!this.needsBase) {
-      this.applyWorldTransform(this.bctx);
-      fillStroke(this.bctx, stroke, this.autoInk);
-    }
-    this.opts.onChange();
-    this.emitState();
-  }
-
-  private eraseAt(points: [number, number][]) {
-    const er = this.erase!;
-    const r = ERASER_RADIUS_PX / this.view.zoom;
-    const hits = new Set<string>();
-    for (const s of this.project.strokes) {
-      for (const [x, y] of points) {
-        if (strokeHit(s, x, y, r)) {
-          hits.add(s.id);
-          break;
-        }
-      }
-    }
-    if (!hits.size) return;
-    er.removed.push(...removeStrokes(this.project.strokes, hits));
-    this.requestBase();
-  }
-
-  private touchDown(e: PointerEvent) {
-    const now = performance.now();
-    const palm =
-      this.stroke !== null ||
-      this.erase !== null ||
-      now - this.lastPenUp < PALM_GRACE_MS ||
-      Math.max(e.width || 0, e.height || 0) > PALM_SIZE_PX;
-    if (palm || this.touchesBlocked) {
-      this.ignoredTouches.add(e.pointerId);
-      return;
-    }
-    this.capture(e.pointerId);
-    this.touches.set(e.pointerId, this.local(e));
-    if (this.touches.size === 2) this.startPinch();
-    else if (this.touches.size > 2) {
-      // Three or more contacts: almost always a resting hand. Stop and wait for all to lift.
-      this.pinch = null;
-      this.touchesBlocked = true;
-      for (const id of this.touches.keys()) this.ignoredTouches.add(id);
-      this.touches.clear();
-    }
-  }
-
-  private startPinch() {
-    const [a, b] = [...this.touches.values()];
-    this.pinch = {
-      startView: { ...this.view },
-      startMid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2],
-      startDist: Math.hypot(a[0] - b[0], a[1] - b[1]),
-    };
-  }
-
-  private touchMove(e: PointerEvent) {
-    if (!this.touches.has(e.pointerId)) return;
-    this.touches.set(e.pointerId, this.local(e));
-    if (!this.pinch || this.touches.size !== 2) return;
-    const [a, b] = [...this.touches.values()];
-    const mid: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    const dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
-    const p = this.pinch;
-    this.setView(pinchView(p.startView, p.startMid, p.startDist, mid, dist));
-  }
-
-  private touchUp(e: PointerEvent) {
-    this.ignoredTouches.delete(e.pointerId);
-    if (this.touches.delete(e.pointerId)) this.pinch = null;
-    if (this.touchesBlocked && this.ignoredTouches.size === 0 && this.touches.size === 0) {
-      this.touchesBlocked = false;
-    }
-  }
-
-  private cancelInput() {
-    if (this.stroke) this.commitStroke(this.stroke);
-    this.stroke = null;
-    this.erase = null;
-    this.pinch = null;
-    this.touches.clear();
-    this.ignoredTouches.clear();
-    this.mousePan = null;
-  }
-
-  private onWheel(e: WheelEvent) {
-    e.preventDefault();
-    const r = this.container.getBoundingClientRect();
-    const [sx, sy] = [e.clientX - r.left, e.clientY - r.top];
-    if (e.ctrlKey || e.metaKey) {
-      // Trackpad pinch (reported as ctrl+wheel) or cmd+scroll.
-      this.setView(zoomAt(this.view, this.view.zoom * Math.exp(-e.deltaY * 0.01), sx, sy));
-    } else {
-      this.setView({ ...this.view, x: this.view.x - e.deltaX, y: this.view.y - e.deltaY });
-    }
-  }
-
-  private onKey(e: KeyboardEvent, down: boolean) {
-    const target = e.target as HTMLElement | null;
-    if (target?.closest('input, textarea, [contenteditable="true"]')) return;
-    if (e.code === 'Space') {
-      this.spaceDown = down;
-      if (down) e.preventDefault();
-      return;
-    }
-    if (!down) return;
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-      e.preventDefault();
-      if (e.shiftKey) this.redo();
-      else this.undo();
-    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
-      e.preventDefault();
-      this.redo();
     }
   }
 }
