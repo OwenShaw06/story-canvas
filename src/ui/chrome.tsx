@@ -4,6 +4,7 @@ import type { Controller } from '../controller';
 import type { ShapeKind } from '../model';
 import { accent, HIGHLIGHTER_COLORS, PALETTE, PEN_COLORS, STICKY_COLORS, type ColorName } from '../palette';
 import { theme, useStore, type Store } from '../store';
+import { dockSide, type DockSide } from '../prefs';
 import { focusNodeSoon, useDocVersion } from './hooks';
 import {
   ChevronDownIcon,
@@ -116,6 +117,42 @@ export function Dock(props: { board: Board; controller: Controller | null; inser
   const colors = ink === 'highlighter' ? HIGHLIGHTER_COLORS : PEN_COLORS;
   const sizes = ink === 'highlighter' ? HL_SIZES : PEN_SIZES;
   const plusRef = useRef<HTMLButtonElement>(null);
+  const side = useStore(dockSide);
+  const [drag, setDrag] = useState<{ x: number; y: number; dx: number; dy: number } | null>(null);
+  const [hint, setHint] = useState<DockSide | null>(null);
+
+  // Drag the grip to move the toolbar; it snaps to the nearest side on release.
+  const sideAt = (x: number): DockSide => {
+    const w = window.innerWidth;
+    return x < w * 0.3 ? 'left' : x > w * 0.7 ? 'right' : 'bottom';
+  };
+  const onGripDown = (e: PointerEvent) => {
+    e.preventDefault();
+    const wrap = (e.currentTarget as HTMLElement).closest('.dock-wrap')!.getBoundingClientRect();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer already gone */
+    }
+    props.insertOpen.set(false);
+    setDrag({ x: wrap.left, y: wrap.top, dx: e.clientX - wrap.left, dy: e.clientY - wrap.top });
+    setHint(sideAt(e.clientX));
+  };
+  const onGripMove = (e: PointerEvent) => {
+    if (!drag) return;
+    setDrag({ ...drag, x: e.clientX - drag.dx, y: e.clientY - drag.dy });
+    setHint(sideAt(e.clientX));
+  };
+  const onGripUp = (e: PointerEvent) => {
+    if (!drag) return;
+    const moved = Math.hypot(e.clientX - drag.dx - drag.x, e.clientY - drag.dy - drag.y);
+    setDrag(null);
+    setHint(null);
+    const target = sideAt(e.clientX);
+    // A plain tap on the grip cycles sides: bottom → left → right.
+    if (moved < 4 && target === side) dockSide.set(side === 'bottom' ? 'left' : side === 'left' ? 'right' : 'bottom');
+    else dockSide.set(target);
+  };
 
   const set = (patch: Partial<{ color: string; size: number }>) => {
     if (!controller || !ink) return;
@@ -123,10 +160,28 @@ export function Dock(props: { board: Board; controller: Controller | null; inser
     rerender((x) => x + 1);
   };
 
+  const dragStyle = drag ? { left: `${drag.x}px`, top: `${drag.y}px`, right: 'auto', bottom: 'auto', transform: 'none' } : undefined;
+
   return (
-    <div class="dock-wrap">
+    <>
+      {hint && <div class={`dock-target dock-target-${hint}`} aria-hidden="true" />}
+    <div class={`dock-wrap ${drag ? 'is-dragging' : ''}`} data-side={side} style={dragStyle}>
       <InsertSheet board={board} open={insertOpen} onClose={() => props.insertOpen.set(false)} anchor={plusRef} />
       <div class="dock glass">
+        <div
+          class="dock-grip"
+          role="button"
+          aria-label="Move toolbar (drag to a side, or tap to switch sides)"
+          title="Move toolbar"
+          onPointerDown={onGripDown}
+          onPointerMove={onGripMove}
+          onPointerUp={onGripUp}
+          onPointerCancel={() => (setDrag(null), setHint(null))}
+        >
+          <svg width="10" height="16" viewBox="0 0 10 16" aria-hidden="true">
+            {[2, 8].map((x) => [2, 8, 14].map((y) => <circle key={`${x}${y}`} cx={x} cy={y} r="1.5" fill="currentColor" />))}
+          </svg>
+        </div>
         <button
           ref={plusRef}
           class={`insert-btn ${insertOpen ? 'is-open' : ''}`}
@@ -181,6 +236,7 @@ export function Dock(props: { board: Board; controller: Controller | null; inser
         </div>
       </div>
     </div>
+    </>
   );
 }
 

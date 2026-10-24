@@ -5,6 +5,7 @@ import { canvasToBlob, canvasToPdf, markdownZip, renderBoard, shareOrDownload } 
 import { blobToDataUrl, exportFilename, exportProject } from '../io';
 import { cardTitle, type Background, type BoardNode } from '../model';
 import { theme, useStore } from '../store';
+import { dockSide, type DockSide } from '../prefs';
 import { useDocVersion } from './hooks';
 import {
   CardIcon,
@@ -239,6 +240,8 @@ export function BoardMenu(props: {
           </button>
         ))}
       </div>
+      <div class="menu-title">Toolbar</div>
+      <ToolbarSide />
       <div class="menu-sep" />
       <div class="menu-title">Export</div>
       <button
@@ -310,5 +313,23 @@ export function BoardMenu(props: {
       </button>
       {busy && <div class="menu-busy">{busy}…</div>}
     </Popover>
+  );
+}
+
+function ToolbarSide() {
+  const side = useStore(dockSide);
+  const opts: { id: DockSide; label: string }[] = [
+    { id: 'left', label: 'Left' },
+    { id: 'bottom', label: 'Bottom' },
+    { id: 'right', label: 'Right' },
+  ];
+  return (
+    <div class="segmented menu-segmented">
+      {opts.map((o) => (
+        <button key={o.id} class={side === o.id ? 'is-on' : ''} onClick={() => dockSide.set(o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
   );
 }

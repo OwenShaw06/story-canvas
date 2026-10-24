@@ -18,7 +18,7 @@ type Kind = 'touch' | 'pen' | 'mouse';
 type Corner = 'nw' | 'ne' | 'sw' | 'se';
 
 type Gesture =
-  | { type: 'stroke'; id: number; hostId: string | null }
+  | { type: 'stroke'; id: number; hostId: string | null; field: HTMLElement | null }
   | { type: 'erase'; id: number; last: [number, number] }
   | { type: 'pan'; id: number; last: [number, number]; samples: { t: number; x: number; y: number }[] }
   | {
@@ -61,7 +61,11 @@ type Settings = { color: string; size: number };
  */
 export class Controller {
   private g: Gesture | null = null;
+  /** When the current gesture last received an event. */
+  private gAt = 0;
   private touches = new Map<number, [number, number]>();
+  private touchAt = new Map<number, number>();
+  private ignoredAt = new Map<number, number>();
   private ignored = new Set<number>();
   private blocked = false;
   private pinch: { startView: { x: number; y: number; zoom: number }; startMid: [number, number]; startDist: number; samples: { t: number; x: number; y: number }[] } | null = null;
@@ -106,6 +110,10 @@ export class Controller {
     on(el, 'pointermove', (e: PointerEvent) => this.move(e));
     on(el, 'pointerup', (e: PointerEvent) => this.up(e, false));
     on(el, 'pointercancel', (e: PointerEvent) => this.up(e, true));
+    // If the system takes a pointer away from us, treat it as cancelled.
+    on(el, 'lostpointercapture', (e: PointerEvent) => {
+      if (this.g?.id === e.pointerId) this.up(e, true);
+    });
 
     // iOS: the board handles every touch itself (taps, focus, buttons), so
     // Safari never starts a magnifier, text selection, scroll or page zoom.
@@ -178,12 +186,13 @@ export class Controller {
 
   private down(e: PointerEvent) {
     this.engine.stopAnimation();
-    // Safety net: if a previous gesture's end was lost, never leave an undo group open.
-    if (!this.g && !this.touches.size && this.doc.inTransaction) this.doc.endAll();
     const kind = this.kind(e);
     const inField = insideFocusedField(e.target);
-    // Mouse in the field you're typing in: normal text selection.
-    if (inField && kind === 'mouse') return;
+    // Pencil or mouse in the field you're typing in belongs to the system:
+    // Scribble handwriting, caret placement, text selection. iPadOS may never
+    // send this touch's end to us, so we must not start a gesture for it.
+    if (inField && kind !== 'touch') return;
+    this.recoverStale(e);
     // Pressing anywhere that isn't a field finishes the edit.
     if (!inField && !(e.target as Element).closest('[data-edit]')) blurField();
     if (kind === 'touch') return this.touchDown(e);
@@ -191,6 +200,7 @@ export class Controller {
       e.preventDefault();
       this.capture(e.pointerId);
       this.g = { type: 'pan', id: e.pointerId, last: [e.clientX, e.clientY], samples: [] };
+      this.gAt = performance.now();
       return;
     }
     if (e.button !== 0 || this.g) return;
@@ -203,16 +213,75 @@ export class Controller {
     // Capture so the gesture keeps working even if the element under the
     // finger re-renders. Taps on buttons are replayed as clicks in pressEnd.
     this.capture(e.pointerId);
+    this.gAt = performance.now();
     if (tool === 'pen' || tool === 'highlighter') return this.startStroke(e, tool);
     if (tool === 'eraser') return this.startErase(e);
     if (tool === 'lasso') return this.startLasso(e);
     this.startPress(e, kind);
   }
 
+  /**
+   * A gesture whose end never arrived (iPadOS can keep a touch for Scribble,
+   * the keyboard or a system gesture) would otherwise block everything after
+   * it: fingers get treated as a palm, the Pencil can't start a new stroke.
+   * Abandon any gesture that is reusing this pointer or has gone quiet, and
+   * forget touches that have been silent for a while.
+   */
+  private recoverStale(e: PointerEvent) {
+    const now = performance.now();
+    const g = this.g;
+    if (g) {
+      const gIsTouch = this.touches.has(g.id) || (g.type === 'press' && g.kind === 'touch') || g.type === 'pan';
+      const newIsTouch = e.pointerType === 'touch';
+      // There is only one Pencil and one mouse: a new press means the old one ended.
+      const replaced = g.id === e.pointerId || (!newIsTouch && !gIsTouch);
+      // A Pencil gesture silent for 1.5 s while a finger lands has lost its end.
+      const silent = newIsTouch && !gIsTouch && now - this.gAt > 1500;
+      if (replaced || silent) this.abandon();
+    }
+    for (const [id, t] of this.touchAt) {
+      if (id === e.pointerId || now - t > 4000) {
+        this.touches.delete(id);
+        this.touchAt.delete(id);
+        this.pinch = null;
+      }
+    }
+    for (const [id, t] of this.ignoredAt) {
+      if (id === e.pointerId || now - t > 4000) {
+        this.ignored.delete(id);
+        this.ignoredAt.delete(id);
+      }
+    }
+    if (!this.touches.size && !this.ignored.size) this.blocked = false;
+    if (!this.g && !this.touches.size && this.doc.inTransaction) this.doc.endAll();
+  }
+
+  /** Drops the current gesture, keeping whatever it already changed. */
+  private abandon() {
+    const g = this.g;
+    if (!g) return;
+    this.g = null;
+    if (g.type === 'stroke') this.commitLive(g.hostId);
+    if (g.type === 'erase') this.engine.eraserCursor = null;
+    if (g.type === 'lasso') this.engine.lasso = null;
+    if (g.type === 'marquee') this.engine.marquee = null;
+    if (g.type === 'link') this.board.linkDraft.set(null);
+    if (g.type === 'press') {
+      this.engine.strokeDrag = null;
+      this.board.lifted.set(new Set());
+    }
+    this.engine.guides = [];
+    this.doc.endAll();
+    this.engine.requestLive();
+  }
+
   private move(e: PointerEvent) {
     const kind = this.kind(e);
+    if (this.g?.id === e.pointerId) this.gAt = performance.now();
+    if (this.ignored.has(e.pointerId)) this.ignoredAt.set(e.pointerId, performance.now());
     if (kind === 'touch' && this.touches.has(e.pointerId)) {
       this.touches.set(e.pointerId, [e.clientX, e.clientY]);
+      this.touchAt.set(e.pointerId, performance.now());
       if (this.pinch && this.touches.size === 2) return this.pinchMove();
     }
     const g = this.g;
@@ -281,7 +350,8 @@ export class Controller {
   }
 
   private startStroke(e: PointerEvent, tool: 'pen' | 'highlighter') {
-    this.board.clearSelection();
+    const onSelected = (e.target as Element).closest<HTMLElement>('[data-node-id]')?.dataset.nodeId;
+    if (!onSelected || !this.board.selection.get().nodes.includes(onSelected)) this.board.clearSelection();
     const p = this.toPoint(e);
     const host = this.board.nodeAt(p[0], p[1], (n) => hasInk(n) && !(n.kind === 'card' && n.collapsed));
     const s = this.ink[tool];
@@ -293,7 +363,12 @@ export class Controller {
       predicted: [],
       clip: host ? nodeRect(host) : undefined,
     };
-    this.g = { type: 'stroke', id: e.pointerId, hostId: host?.id ?? null };
+    // A text field on a selected object: a quick Pencil tap here opens it for typing or Scribble.
+    const field = (e.target as Element).closest<HTMLElement>('[data-edit]');
+    const fieldNode = field?.closest<HTMLElement>('[data-node-id]')?.dataset.nodeId;
+    const selected = !!fieldNode && this.board.selection.get().nodes.includes(fieldNode);
+    this.g = { type: 'stroke', id: e.pointerId, hostId: host?.id ?? null, field: selected ? field : null };
+
     this.engine.requestLive();
   }
 
@@ -322,9 +397,24 @@ export class Controller {
       const last = s.points[s.points.length - 1];
       if (p[0] !== last[0] || p[1] !== last[1]) s.points.push(p);
     }
+    // A tap (not a stroke) on a selected object's text field: edit it.
+    if (!cancelled && g.field && isTap(s.points, this.engine.view.zoom)) {
+      focusField(g.field);
+      return;
+    }
     // A cancelled stroke (iOS interrupting the touch) is kept: losing ink is worse.
+    this.engine.liveStroke = s;
+    this.commitLive(g.hostId);
+  }
+
+  /** Saves the stroke being drawn (onto its card or sticky, or the canvas). */
+  private commitLive(hostId: string | null) {
+    const s = this.engine.liveStroke;
+    this.engine.liveStroke = null;
+    this.engine.requestLive();
+    if (!s || !s.points.length) return;
     const stroke: Stroke = { id: uid(), tool: s.tool, color: s.color, size: s.size, points: s.points };
-    const host = g.hostId ? this.doc.node(g.hostId) : null;
+    const host = hostId ? this.doc.node(hostId) : null;
     if (host && hasInk(host)) {
       const local: Stroke = { ...stroke, points: stroke.points.map(([x, y, pr]) => [round(x - host.x, 2), round(y - host.y, 2), pr] as Point) };
       this.doc.patch('nodes', host.id, { ink: [...host.ink, local] });
@@ -797,10 +887,11 @@ export class Controller {
 
   private touchDown(e: PointerEvent) {
     const now = performance.now();
-    const penBusy = this.g && (this.g.type === 'stroke' || this.g.type === 'erase' || this.g.type === 'lasso' || (this.g.type === 'press' && this.g.kind !== 'touch'));
+    const penBusy = this.g && now - this.gAt < 1500 && (this.g.type === 'stroke' || this.g.type === 'erase' || this.g.type === 'lasso' || (this.g.type === 'press' && this.g.kind !== 'touch'));
     const palm = penBusy || now - this.lastPenUp < PALM_GRACE_MS || Math.max(e.width || 0, e.height || 0) > PALM_SIZE_PX;
     if (palm) {
       this.ignored.add(e.pointerId);
+      this.ignoredAt.set(e.pointerId, now);
       return;
     }
     if (!this.touches.size && !this.ignored.size) this.multi = { start: now, max: 0, moved: 0, pinched: false };
@@ -811,9 +902,11 @@ export class Controller {
     }
     this.capture(e.pointerId);
     this.touches.set(e.pointerId, [e.clientX, e.clientY]);
+    this.touchAt.set(e.pointerId, now);
     if (this.multi) this.multi.max = Math.max(this.multi.max, this.touches.size);
 
     if (this.touches.size === 1) {
+      this.gAt = now;
       this.startPress(e, 'touch');
     } else if (this.touches.size === 2) {
       // Second finger: whatever the first finger was doing becomes a pinch.
@@ -872,6 +965,8 @@ export class Controller {
 
   private touchUp(e: PointerEvent) {
     this.ignored.delete(e.pointerId);
+    this.ignoredAt.delete(e.pointerId);
+    this.touchAt.delete(e.pointerId);
     const wasPinch = !!this.pinch && this.touches.has(e.pointerId);
     if (this.touches.delete(e.pointerId) && wasPinch) {
       const s = this.pinch!.samples;
@@ -1009,4 +1104,11 @@ function focusField(el: HTMLElement) {
       /* some input types don't support selection */
     }
   }
+}
+
+/** A stroke that barely moved: the Pencil was tapped, not drawn. */
+function isTap(points: Point[], zoom: number): boolean {
+  if (points.length > 6) return false;
+  const [x0, y0] = points[0];
+  return points.every(([x, y]) => Math.hypot(x - x0, y - y0) * zoom < 4);
 }

@@ -8,6 +8,7 @@ import { renderBoard } from '../export';
 import { dataUrlToBlob, importProject } from '../io';
 import type { Project } from '../model';
 import { store, theme, useStore } from '../store';
+import { dockSide } from '../prefs';
 import { ContextBar } from './ContextBar';
 import { Dock, TopBar, ZoomControl } from './chrome';
 import { useDocVersion } from './hooks';
@@ -33,6 +34,7 @@ export function BoardScreen({ project, onExit, onOpen }: { project: Project; onE
   const tagRef = useRef<HTMLButtonElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const toast = useStore(board.toast);
+  const side = useStore(dockSide);
 
   useEffect(() => {
     const engine = new CanvasEngine(containerRef.current!, [belowRef.current!, aboveRef.current!], inkRef.current!, board.doc);
@@ -96,7 +98,7 @@ export function BoardScreen({ project, onExit, onOpen }: { project: Project; onE
   };
 
   return (
-    <div class="board-screen">
+    <div class="board-screen" data-dock={side}>
       <div class="canvas" ref={containerRef} data-tool={tool}>
         <div class="world below" ref={belowRef}>
           <NodesLayer board={board} />

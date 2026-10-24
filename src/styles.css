@@ -1173,6 +1173,192 @@ mark {
   color: var(--ink);
 }
 
+/* ---------- movable dock ---------- */
+
+.dock-wrap {
+  transition:
+    left 0.35s var(--ease-spring),
+    right 0.35s var(--ease-spring),
+    top 0.35s var(--ease-spring),
+    bottom 0.35s var(--ease-spring);
+}
+
+.dock-wrap.is-dragging {
+  transition: none;
+  z-index: 40;
+}
+
+.dock-wrap.is-dragging .dock {
+  transform: scale(1.03);
+  box-shadow:
+    inset 0 0.5px 0 var(--glass-edge),
+    0 0 0 0.5px var(--glass-line),
+    0 30px 60px -20px rgba(0, 0, 0, 0.4);
+}
+
+.dock {
+  transition: transform 0.2s var(--ease-spring);
+}
+
+.dock-grip {
+  flex: none;
+  width: 22px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+  cursor: grab;
+  touch-action: none;
+  border-radius: 8px;
+}
+
+.dock-grip:hover {
+  color: var(--muted);
+  background: var(--hover);
+}
+
+.dock-wrap.is-dragging .dock-grip {
+  cursor: grabbing;
+}
+
+/* Where the toolbar will land. */
+.dock-target {
+  position: fixed;
+  z-index: 39;
+  border-radius: 26px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+  pointer-events: none;
+  animation: fade-in 0.15s both;
+}
+
+.dock-target-bottom {
+  left: 20%;
+  right: 20%;
+  bottom: calc(var(--safe-bottom) - 4px);
+  height: 66px;
+}
+
+.dock-target-left,
+.dock-target-right {
+  top: 22%;
+  bottom: 22%;
+  width: 66px;
+}
+
+.dock-target-left {
+  left: max(8px, env(safe-area-inset-left));
+}
+
+.dock-target-right {
+  right: max(8px, env(safe-area-inset-right));
+}
+
+/* Vertical dock on the left or right edge. */
+.dock-wrap[data-side='left'],
+.dock-wrap[data-side='right'] {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+  max-width: none;
+}
+
+.dock-wrap[data-side='left'] {
+  left: max(12px, env(safe-area-inset-left));
+}
+
+.dock-wrap[data-side='right'] {
+  left: auto;
+  right: max(12px, env(safe-area-inset-right));
+}
+
+[data-side='left'] .dock,
+[data-side='right'] .dock {
+  flex-direction: column;
+  max-height: calc(100vh - 2 * (var(--safe-top) + 70px));
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+[data-side='left'] .dock-grip,
+[data-side='right'] .dock-grip {
+  width: 44px;
+  height: 22px;
+}
+
+[data-side='left'] .dock-grip svg,
+[data-side='right'] .dock-grip svg {
+  transform: rotate(90deg);
+}
+
+[data-side='left'] .dock-sep,
+[data-side='right'] .dock-sep {
+  width: 24px;
+  height: 1px;
+  margin: 5px 0;
+}
+
+[data-side='left'] .dock-ink,
+[data-side='right'] .dock-ink {
+  flex-direction: column;
+  max-width: none;
+  max-height: 0;
+  transition:
+    max-height 0.35s var(--ease-out),
+    opacity 0.2s;
+}
+
+[data-side='left'] .dock-ink.is-open,
+[data-side='right'] .dock-ink.is-open {
+  max-height: 560px;
+}
+
+[data-side='left'] .swatch,
+[data-side='right'] .swatch,
+[data-side='left'] .size-btn,
+[data-side='right'] .size-btn {
+  width: 44px;
+  height: 32px;
+}
+
+[data-side='left'] .tool-btn,
+[data-side='right'] .tool-btn {
+  height: 40px;
+}
+
+/* Insert sheet opens beside a vertical dock. */
+[data-side='left'] .insert-sheet,
+[data-side='right'] .insert-sheet {
+  --sheet-base: translateY(-50%);
+  top: 50%;
+  bottom: auto;
+  max-height: min(84vh, 680px);
+}
+
+[data-side='left'] .insert-sheet {
+  left: calc(100% + 12px);
+}
+
+[data-side='right'] .insert-sheet {
+  left: auto;
+  right: calc(100% + 12px);
+}
+
+/* Keep the zoom control clear of a right-hand dock. */
+.board-screen[data-dock='right'] .zoom {
+  right: auto;
+  left: 12px;
+}
+
+.menu-segmented {
+  margin: 2px 8px 8px;
+}
+
+.menu-segmented button {
+  flex: 1;
+  font-size: 13px;
+}
+
 /* ---------- zoom ---------- */
 
 .zoom {
@@ -1417,7 +1603,8 @@ mark {
   overflow-y: auto;
   padding: 14px;
   border-radius: 26px;
-  transform: translateX(-50%);
+  --sheet-base: translateX(-50%);
+  transform: var(--sheet-base);
   background: var(--glass);
   -webkit-backdrop-filter: blur(30px) saturate(1.8);
   backdrop-filter: blur(30px) saturate(1.8);
@@ -1431,7 +1618,7 @@ mark {
 @keyframes sheet-in {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(12px) scale(0.97);
+    transform: var(--sheet-base) translateY(12px) scale(0.97);
   }
 }
 
