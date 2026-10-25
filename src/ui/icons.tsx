@@ -244,6 +244,15 @@ export const DistributeVIcon = make(<><path d="M4 4h16M4 20h16" /><rect x="7" y=
 export const TidyIcon = make(<><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>);
 export const ArrangeIcon = make(<><path d="M4 4v16" /><rect x="7" y="5" width="12" height="5" rx="1.2" /><rect x="7" y="14" width="8" height="5" rx="1.2" /></>);
 
+export const ChecklistIcon = make(
+  <>
+    <path d="M4 6.5l1.6 1.6L8.5 5" />
+    <path d="M4 12.5l1.6 1.6 2.9-3.1" />
+    <path d="M4 18.5l1.6 1.6 2.9-3.1" />
+    <path d="M11.5 7h8.5M11.5 13h8.5M11.5 19h6" />
+  </>,
+);
+
 // Template icons
 export const PersonIcon = make(
   <>

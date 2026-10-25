@@ -1,6 +1,7 @@
 import { defaultTemplates } from './templates';
 import { uid, type BoardNode, type Project } from './model';
 import { DEFAULT_TAGS } from './suggestions';
+import { ADDON_IDS, emptyStructure, type StructureState } from './structure';
 
 // Brings any stored or imported project up to the current shape. Safe to run
 // on an already-current project.
@@ -58,8 +59,26 @@ export function normalizeProject(raw: any, opts: { newId?: boolean } = {}): Proj
     strokes: arr(raw.strokes).filter((s: any) => s && typeof s.id === 'string' && Array.isArray(s.points)),
     templates,
     background: ['dots', 'grid', 'lines', 'plain'].includes(raw.background) ? raw.background : 'dots',
+    structure: normalizeStructure(raw.structure),
     tagPresets: Array.isArray(raw.tagPresets) ? raw.tagPresets.filter((t: unknown) => typeof t === 'string') : [...DEFAULT_TAGS],
     ...(typeof raw.cover === 'string' && raw.cover.startsWith('data:image/') ? { cover: raw.cover } : {}),
     ...(typeof raw.coverAt === 'number' ? { coverAt: raw.coverAt } : {}),
+  };
+}
+
+function normalizeStructure(raw: any): StructureState {
+  const base = emptyStructure();
+  if (!raw || typeof raw !== 'object') return base;
+  const obj = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
+  return {
+    modules: Array.isArray(raw.modules) ? raw.modules.filter((m: unknown) => typeof m === 'string' && ADDON_IDS.includes(m)) : [],
+    answers: Object.fromEntries(Object.entries(obj(raw.answers)).filter(([, v]) => typeof v === 'string')),
+    checks: Object.fromEntries(Object.entries(obj(raw.checks)).filter(([, v]) => typeof v === 'boolean')),
+    skipped: Object.fromEntries(Object.entries(obj(raw.skipped)).filter(([, v]) => typeof v === 'boolean')),
+    tables: Object.fromEntries(
+      Object.entries(obj(raw.tables))
+        .filter(([, v]) => Array.isArray(v))
+        .map(([k, v]) => [k, (v as unknown[]).filter(Array.isArray).map((r) => (r as unknown[]).map((c) => String(c ?? '')))]),
+    ),
   };
 }

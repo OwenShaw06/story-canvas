@@ -15,6 +15,7 @@ import { useDocVersion } from './hooks';
 import { NodeView } from './nodes';
 import { LinksLayer, SelectionOverlay } from './overlays';
 import { BoardMenu, SearchPanel, TagPanel } from './panels';
+import { StructurePanel } from './StructurePanel';
 import { TemplateEditor } from './TemplateEditor';
 import { CardIcon, PenIcon, PlusIcon } from './icons';
 
@@ -122,6 +123,7 @@ export function BoardScreen({ project, onExit, onOpen }: { project: Project; onE
       <ZoomControl board={board} view={viewTick} />
 
       {panel === 'search' && <SearchPanel board={board} onClose={() => setPanel(null)} />}
+      {panel === 'structure' && <StructurePanel board={board} onClose={() => setPanel(null)} />}
       {panel === 'tags' && <TagPanel board={board} onClose={() => setPanel(null)} anchor={tagRef} />}
       {panel === 'menu' && (
         <BoardMenu

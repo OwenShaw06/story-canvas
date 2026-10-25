@@ -3,6 +3,8 @@
 // frames, and links can join any two nodes. Coordinates are in canvas (world)
 // space; ink on a card or sticky is stored relative to that node.
 
+import type { StructureState } from './structure';
+
 export const SCHEMA_VERSION = 2;
 
 export type Point = [x: number, y: number, pressure: number];
@@ -98,6 +100,8 @@ export type Project = {
   background: Background;
   /** Tags offered when tagging a card (editable). */
   tagPresets: string[];
+  /** Story structure checklist answers. */
+  structure: StructureState;
   /** Cover image for the worlds list (JPEG data URL), chosen by the writer. */
   cover?: string;
   /** When the cover was last set or removed, so an older save can't undo it. */

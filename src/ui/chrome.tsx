@@ -21,6 +21,7 @@ import {
   PlusIcon,
   RedoIcon,
   SearchIcon,
+  ChecklistIcon,
   SelectIcon,
   ShapesIcon,
   StickyIcon,
@@ -82,6 +83,9 @@ export function TopBar(props: {
             {fs ? <ShrinkIcon /> : <ExpandScreenIcon />}
           </IconButton>
         )}
+        <IconButton label="Story structure" active={props.panel === 'structure'} onClick={() => toggle('structure')}>
+          <ChecklistIcon />
+        </IconButton>
         <IconButton label="Search" active={props.panel === 'search'} onClick={() => toggle('search')}>
           <SearchIcon />
         </IconButton>

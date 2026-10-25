@@ -10,6 +10,7 @@ import type { CardNode, StickyNode, Stroke } from './model';
 import { randomName, DEFAULT_TAGS } from './suggestions';
 import { defaultTemplates } from './templates';
 import { align, distribute, tidy } from './arrange';
+import { MODULE_BY_ID, emptyStructure, isDone, nextUp, progress, structureMarkdown, withModule } from './structure';
 
 const s = (id: string, pts: [number, number][] = [[0, 0], [10, 0]]): Stroke => ({
   id,
@@ -272,6 +273,67 @@ describe('arrange', () => {
       expect(p.x % 32).toBe(0);
       expect(p.y % 32).toBe(0);
     }
+  });
+});
+
+describe('story structure', () => {
+  it('stacks add-ons on their base and removes them together', () => {
+    let m = withModule([], 'space', true);
+    expect(m).toEqual(['sf', 'space']);
+    m = withModule(m, 'heist', true);
+    expect(m).toEqual(['sf', 'space', 'heist']);
+    expect(withModule(m, 'sf', false)).toEqual(['heist']);
+  });
+
+  it('counts answers, checks, skips and tables as done', () => {
+    const s = emptyStructure();
+    const core1 = MODULE_BY_ID.get('core1')!;
+    expect(progress(s, core1)).toEqual({ done: 0, total: 10 });
+    s.answers['core1.pitch'] = 'When…';
+    s.skipped['core1.comps'] = true;
+    expect(progress(s, core1).done).toBe(2);
+    const subplots = MODULE_BY_ID.get('core4')!.groups[0].items[0];
+    expect(isDone(s, subplots)).toBe(false); // preset "B-story" label alone isn't an answer
+    s.tables[subplots.id] = [['B-story', 'Lily and Ren', '', '']];
+    expect(isDone(s, subplots)).toBe(true);
+    s.checks['core5.c1'] = true;
+    expect(progress(s, MODULE_BY_ID.get('core5')!).done).toBe(1);
+  });
+
+  it('follows the fill order: pitch, want/need/lie, ending, beats backward', () => {
+    const s = emptyStructure();
+    expect(nextUp(s)!.id).toBe('core1.pitch');
+    s.answers['core1.pitch'] = 'x';
+    s.answers['core2.want'] = 'x';
+    s.answers['core2.need'] = 'x';
+    s.answers['core2.lie'] = 'x';
+    expect(nextUp(s)!.id).toBe('core3.b14');
+    s.answers['core3.b14'] = 'x';
+    s.answers['core3.b15'] = 'x';
+    expect(nextUp(s)!.id).toBe('core3.b13');
+  });
+
+  it('starts older worlds with an empty checklist and keeps saved answers', () => {
+    const old: any = structuredClone(newProject());
+    delete old.structure;
+    expect(normalizeProject(old).structure).toEqual(emptyStructure());
+    old.structure = { modules: ['sf', 'bogus'], answers: { 'core1.pitch': 'P', bad: 3 }, checks: {}, skipped: {}, tables: {} };
+    const n = normalizeProject(old).structure;
+    expect(n.modules).toEqual(['sf']);
+    expect(n.answers).toEqual({ 'core1.pitch': 'P' });
+  });
+
+  it('exports filled boxes as Markdown', () => {
+    const s = emptyStructure();
+    s.modules = ['sf'];
+    s.answers['core1.pitch'] = 'When a breeder…';
+    s.checks['core5.c1'] = true;
+    const md = structureMarkdown(s, 'Floral Book')!;
+    expect(md).toContain('# Floral Book: story structure');
+    expect(md).toContain('**One-line pitch:** When a breeder…');
+    expect(md).toContain('- [x] The climax answers the central dramatic question.');
+    expect(md).toContain('## Science fiction');
+    expect(structureMarkdown(emptyStructure(), 'X')).toBeNull();
   });
 });
 

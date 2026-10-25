@@ -38,6 +38,16 @@ ink, whiteboard objects, and structured story cards. Fully local and offline.
 - Ready-made tags (protagonist, act-1, secret…) offered while tagging, each with its own
   colour; edit the list in the tag panel
 
+**Story structure**
+- A checklist panel (✓ button in the top bar) built from the Fiction Structure Template:
+  Core sections for every book (premise, characters, 15-beat sheet, subplots/setting/POV,
+  structure check) plus stackable genre add-ons (SF, space opera, military SF, cyberpunk,
+  dystopian, epic and portal fantasy, magic system, mystery/thriller, heist, horror,
+  romance, series)
+- Genre templates switch on the right add-ons; progress per section; Skip for boxes that
+  don't apply; “Next up” follows the fill order; tables for cast, factions, clues, crew…
+- Put the beat sheet on the board as 15 cards; included in backups and Markdown export
+
 **Organise & export**
 - World list with thumbnails or your own cover image (⋯ → Set cover image…); rename, duplicate, delete
 - Search across every card field, note and frame; tap a result to fly to it

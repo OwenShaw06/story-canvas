@@ -205,6 +205,47 @@ export class Board {
     return this.addNode({ id: uid(), kind: 'frame', ...this.insertPoint(w, h), w, h, label: 'Frame', color: 'gray' });
   }
 
+  /** Lays the 15 beats out as cards in a frame, in three act rows. */
+  addBeatSheet(beats: { label: string; pct: string; hint: string; answer: string }[]) {
+    const tpl = this.doc.template('plot_event');
+    const W = 330,
+      GAP = 24,
+      PAD = 48;
+    const acts = [beats.slice(0, 5), beats.slice(5, 12), beats.slice(12)];
+    const cols = Math.max(...acts.map((a) => a.length));
+    // Rough card heights so rows don't overlap: title + position, plus your answer.
+    // Header, the position field and the tag row come to about 190.
+    const est = (b: { answer: string }) => 196 + (b.answer ? 30 + Math.ceil(b.answer.length / 40) * 22 : 0);
+    const rowH = acts.map((a) => Math.max(...a.map(est)));
+    const fw = PAD * 2 + cols * W + (cols - 1) * GAP;
+    const fh = PAD * 2 + rowH.reduce((s, h) => s + h + GAP, 0) - GAP;
+    const at = this.insertPoint(fw, fh);
+    const frame: BoardNode = { id: uid(), kind: 'frame', ...at, w: fw, h: fh, label: 'Beat sheet', color: 'orange' };
+    let n = 0;
+    this.doc.transact(() => {
+      this.doc.put('nodes', frame, 0);
+      let y = at.y + PAD;
+      acts.forEach((act, r) => {
+        act.forEach((b, c) => {
+          n++;
+          const x = at.x + PAD + c * (W + GAP);
+          const title = `${n} · ${b.label}`;
+          if (tpl) {
+            const fields: Record<string, string> = { title, book_and_chapter: b.pct };
+            if (b.answer.trim()) fields.what_happens = b.answer.trim();
+            this.doc.put('nodes', { id: uid(), kind: 'card', templateId: tpl.id, x, y, w: W, h: 72, collapsed: false, color: tpl.color, tags: ['beat'], fields, ink: [] });
+          } else {
+            this.doc.put('nodes', { id: uid(), kind: 'sticky', x, y, w: W, h: 200, color: 'orange', text: `${title}\n${b.pct}\n\n${b.answer}`, ink: [] });
+          }
+        });
+        y += rowH[r] + GAP;
+      });
+    }, 'Beat sheet');
+    this.selectNodes([frame.id]);
+    this.engine.fit({ minX: frame.x, minY: frame.y - 40, maxX: frame.x + fw, maxY: frame.y + fh }, 1);
+    this.notify('Beat sheet added to the board');
+  }
+
   async addImageFiles(files: Iterable<File>, at?: { x: number; y: number }) {
     const ids: string[] = [];
     let i = 0;

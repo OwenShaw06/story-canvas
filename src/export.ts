@@ -5,6 +5,7 @@ import { nodeRect, stickyFontSize } from './layout';
 import { cardTitle, type BoardNode, type Project, type Template } from './model';
 import { accent, fill, INK_THEME, type Theme } from './palette';
 import { safeName } from './io';
+import { structureMarkdown } from './structure';
 
 // Renders a board to a canvas without the DOM, for PNG/PDF export and
 // project thumbnails; plus Markdown export for Obsidian.
@@ -439,6 +440,8 @@ export function projectToMarkdown(p: Project): { name: string; content: string }
     if (rel.length) lines.push('## Connections', '', ...(rel as string[]), '');
     files.push({ name: fileFor.get(n.id)!, content: lines.join('\n') });
   }
+  const structure = structureMarkdown(p.structure, p.name);
+  if (structure) files.push({ name: 'Story structure.md', content: structure });
   const notes = p.nodes.filter((n) => (n.kind === 'sticky' || n.kind === 'text') && n.text.trim());
   if (notes.length) {
     files.push({
